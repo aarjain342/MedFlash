@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { getProvider } from './providers/index.js';
+import { getProviderChain } from './providers/index.js';
 import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
 import { createRateLimiter } from './rateLimiter.js';
@@ -60,30 +60,37 @@ function parseSuggestedRetryMs(message) {
   return match ? Math.ceil(parseFloat(match[1]) * 1000) + 750 : null;
 }
 
-// Walks the provider's model fallback chain (e.g. ~10 Gemini models with separate quota
-// pools). A quota/rate-limit error moves to the next model immediately — retrying the same
-// exhausted quota just wastes time. Only transient errors (overloaded/5xx) get a couple of
-// retries on the same model before also moving on.
-async function generateWithRetry(provider, prompt, image) {
-  const models = provider.modelFallbackChain ? provider.modelFallbackChain() : [undefined];
+// Walks the full provider chain (e.g. ~10 Gemini models, then Groq's models as a
+// last-resort fallback from a completely separate vendor with its own quota). A
+// quota/rate-limit error moves on immediately — retrying the same exhausted quota just
+// wastes time. Only transient errors (overloaded/5xx) get a couple of retries first.
+// Vision support and the image note in the prompt are re-decided per provider, since
+// not every fallback vendor can see the slide image.
+async function generateWithRetry(providers, text, imageDataUrl, pageIndex, pageCount) {
   let lastErr;
 
-  for (const model of models) {
-    for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
-      try {
-        await acquireSlot();
-        return await provider.generateText(prompt, { image, model });
-      } catch (err) {
-        lastErr = err;
-        const isQuota = /429|quota|rate/i.test(err.message || '');
-        const isTransient = /overloaded|502|503|504/i.test(err.message || '');
+  for (const provider of providers) {
+    const image = provider.supportsVision() ? dataUrlToImagePart(imageDataUrl) : null;
+    if (!text && !image) continue; // this provider has nothing to work with either — skip it
+    const prompt = buildSlidePrompt(text, pageIndex, pageCount, !!image);
 
-        if (isTransient && attempt < RETRIES_PER_MODEL - 1) {
-          const suggested = parseSuggestedRetryMs(err.message);
-          await new Promise((r) => setTimeout(r, suggested ?? 1500 * 2 ** attempt));
-          continue; // retry the same model
+    const models = provider.modelFallbackChain ? provider.modelFallbackChain() : [undefined];
+    for (const model of models) {
+      for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
+        try {
+          await acquireSlot();
+          return await provider.generateText(prompt, { image, model });
+        } catch (err) {
+          lastErr = err;
+          const isTransient = /overloaded|502|503|504/i.test(err.message || '');
+
+          if (isTransient && attempt < RETRIES_PER_MODEL - 1) {
+            const suggested = parseSuggestedRetryMs(err.message);
+            await new Promise((r) => setTimeout(r, suggested ?? 1500 * 2 ** attempt));
+            continue; // retry the same model
+          }
+          break; // give up on this model (quota exhausted, or out of retries) — try the next one
         }
-        break; // give up on this model (quota exhausted, or out of retries) — try the next one
       }
     }
   }
@@ -99,11 +106,11 @@ function parseCards(raw) {
 app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
 
-  let provider;
+  let providerChain;
   let doc;
   let pageCount;
   try {
-    provider = getProvider();
+    providerChain = getProviderChain();
     ({ doc, pageCount } = openPdf(req.file.buffer));
   } catch (err) {
     return res.status(400).json({ error: err.message || 'Failed to open PDF' });
@@ -116,18 +123,16 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  send('start', { totalPages: pageCount, provider: provider.name });
+  send('start', { totalPages: pageCount, providers: providerChain.map((p) => p.name) });
 
   const pageIndexes = Array.from({ length: pageCount }, (_, i) => i);
+  const anyVision = providerChain.some((p) => p.supportsVision());
 
   try {
     await runWithConcurrency(pageIndexes, SLIDE_CONCURRENCY, async (pageIndex) => {
       const { text, imageDataUrl } = extractPage(doc, pageIndex);
-      const useVision = provider.supportsVision();
-      const image = useVision ? dataUrlToImagePart(imageDataUrl) : null;
-      if (!text && !image) return { pageIndex, cards: [], imageDataUrl };
-      const prompt = buildSlidePrompt(text, pageIndex, pageCount, !!image);
-      const raw = await generateWithRetry(provider, prompt, image);
+      if (!text && !anyVision) return { pageIndex, cards: [], imageDataUrl };
+      const raw = await generateWithRetry(providerChain, text, imageDataUrl, pageIndex, pageCount);
       const cards = parseCards(raw);
       return { pageIndex, cards, imageDataUrl };
     }, (index, result, err) => {
