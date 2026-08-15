@@ -1,0 +1,134 @@
+import { useRef, useState } from 'react';
+import { generateFlashcardsStream } from '../lib/api';
+import { initCardProgress } from '../lib/leitner';
+
+function makeId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
+export default function UploadPanel({ onDeckCreated }) {
+  const [file, setFile] = useState(null);
+  const [status, setStatus] = useState('idle'); // idle | working | error
+  const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
+  const [progress, setProgress] = useState({ done: 0, total: 0, cardCount: 0 });
+  const inputRef = useRef(null);
+
+  async function handleGenerate() {
+    if (!file) return;
+    setStatus('working');
+    setError('');
+    setWarning('');
+    setProgress({ done: 0, total: 0, cardCount: 0 });
+
+    const cardsByPage = new Map();
+    let totalPages = 0;
+    const failedSlides = [];
+
+    try {
+      await generateFlashcardsStream(file, ({ type, data }) => {
+        if (type === 'start') {
+          totalPages = data.totalPages;
+          setProgress({ done: 0, total: data.totalPages, cardCount: 0 });
+        } else if (type === 'slide') {
+          cardsByPage.set(data.page, { cards: data.cards, image: data.image });
+          setProgress((p) => ({
+            done: p.done + 1,
+            total: totalPages,
+            cardCount: p.cardCount + data.cards.length,
+          }));
+        } else if (type === 'slide-error') {
+          failedSlides.push(data.page);
+          setProgress((p) => ({ ...p, done: p.done + 1 }));
+        } else if (type === 'fatal-error') {
+          throw new Error(data.error);
+        }
+      });
+
+      const cards = [];
+      const sortedPages = [...cardsByPage.keys()].sort((a, b) => a - b);
+      for (const page of sortedPages) {
+        const { cards: pageCards, image } = cardsByPage.get(page);
+        for (const c of pageCards) {
+          cards.push({
+            id: makeId(),
+            question: c.question,
+            answer: c.answer,
+            table: c.table || null,
+            mnemonic: c.mnemonic || '',
+            topic: c.topic || '',
+            page,
+            image,
+            ...initCardProgress(),
+          });
+        }
+      }
+
+      if (cards.length === 0) {
+        throw new Error('No flashcards could be generated from this PDF.');
+      }
+
+      const deck = {
+        id: makeId(),
+        name: file.name.replace(/\.pdf$/i, ''),
+        sourceFile: file.name,
+        createdAt: Date.now(),
+        cards,
+      };
+      await onDeckCreated(deck);
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = '';
+      setStatus('idle');
+      if (failedSlides.length > 0) {
+        setWarning(
+          `Deck created, but ${failedSlides.length} slide${failedSlides.length > 1 ? 's' : ''} (${failedSlides.join(', ')}) failed to generate — likely a rate limit. You can re-upload the PDF to retry; already-generated cards won't be duplicated into a new deck.`
+        );
+      }
+    } catch (err) {
+      setError(err.message);
+      setStatus('error');
+    }
+  }
+
+  return (
+    <div className="panel upload-panel">
+      <h2>Create a deck from a PDF</h2>
+      <p className="muted">
+        Upload a lecture slide deck. MedFlash goes slide by slide — reading both the text and
+        the slide image — and makes clear, consolidated flashcards (with tables and memory tricks
+        where they help) plus the source slide image attached to each card.
+      </p>
+
+      <label className="file-drop">
+        <input
+          ref={inputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+        />
+        {file ? file.name : 'Choose a PDF…'}
+      </label>
+
+      <button className="primary" disabled={!file || status === 'working'} onClick={handleGenerate}>
+        {status === 'working' ? 'Generating flashcards…' : 'Generate flashcards'}
+      </button>
+
+      {status === 'working' && progress.total > 0 && (
+        <div className="progress">
+          <div className="progress-bar">
+            <div
+              className="progress-bar-fill"
+              style={{ width: `${(progress.done / progress.total) * 100}%` }}
+            />
+          </div>
+          <p className="muted small">
+            Slide {progress.done} / {progress.total} · {progress.cardCount} cards so far
+          </p>
+        </div>
+      )}
+
+      {status === 'error' && <p className="error">{error}</p>}
+      {warning && <p className="warning">{warning}</p>}
+    </div>
+  );
+}
