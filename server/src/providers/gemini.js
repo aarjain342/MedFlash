@@ -1,11 +1,32 @@
 const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 
-export async function generateText(prompt, { image } = {}) {
+// Each Gemini model has its own free-tier quota pool, so when one gets rate-limited,
+// switching to another lets generation keep going instead of stalling. Ordered roughly
+// lite/fast-first (cheapest quota, best fit for this workload) with sturdier models later.
+const FALLBACK_MODELS = [
+  'gemini-flash-lite-latest',
+  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-pro-latest',
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+];
+
+export function modelFallbackChain() {
+  const configured = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  return [configured, ...FALLBACK_MODELS.filter((m) => m !== configured)];
+}
+
+export async function generateText(prompt, { image, model } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('Server missing GEMINI_API_KEY');
 
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const useModel = model || process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${apiKey}`;
 
   const parts = [{ text: prompt }];
   if (image) {

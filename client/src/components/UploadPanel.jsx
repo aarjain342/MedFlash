@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { generateFlashcardsStream } from '../lib/api';
+import { generateFlashcardsStream, waitForServer } from '../lib/api';
 import { initCardProgress } from '../lib/leitner';
 
 function makeId() {
@@ -8,7 +8,7 @@ function makeId() {
 
 export default function UploadPanel({ onDeckCreated }) {
   const [file, setFile] = useState(null);
-  const [status, setStatus] = useState('idle'); // idle | working | error
+  const [status, setStatus] = useState('idle'); // idle | waking | working | error
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [progress, setProgress] = useState({ done: 0, total: 0, cardCount: 0 });
@@ -16,7 +16,7 @@ export default function UploadPanel({ onDeckCreated }) {
 
   async function handleGenerate() {
     if (!file) return;
-    setStatus('working');
+    setStatus('waking');
     setError('');
     setWarning('');
     setProgress({ done: 0, total: 0, cardCount: 0 });
@@ -26,6 +26,9 @@ export default function UploadPanel({ onDeckCreated }) {
     const failedSlides = [];
 
     try {
+      await waitForServer(() => setStatus('waking'));
+      setStatus('working');
+
       await generateFlashcardsStream(file, ({ type, data }) => {
         if (type === 'start') {
           totalPages = data.totalPages;
@@ -109,9 +112,24 @@ export default function UploadPanel({ onDeckCreated }) {
         {file ? file.name : 'Choose a PDF…'}
       </label>
 
-      <button className="primary" disabled={!file || status === 'working'} onClick={handleGenerate}>
-        {status === 'working' ? 'Generating flashcards…' : 'Generate flashcards'}
+      <button
+        className="primary"
+        disabled={!file || status === 'working' || status === 'waking'}
+        onClick={handleGenerate}
+      >
+        {status === 'working'
+          ? 'Generating flashcards…'
+          : status === 'waking'
+            ? 'Waking up server…'
+            : 'Generate flashcards'}
       </button>
+
+      {status === 'waking' && (
+        <p className="muted small">
+          The server's been idle and is spinning back up — this can take up to a minute on a free
+          host. Hang tight.
+        </p>
+      )}
 
       {status === 'working' && progress.total > 0 && (
         <div className="progress">

@@ -2,6 +2,21 @@ import { supabase, supabaseConfigured } from './supabaseClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787';
 
+// Free-tier hosts (e.g. Render) spin the backend down after inactivity — the first
+// request after a while can take 30-60s just to wake it up. Ping /api/health first so
+// the UI can show a "waking up" message instead of looking frozen during that wait.
+export async function waitForServer(onSlowStart) {
+  const slowTimer = setTimeout(() => onSlowStart?.(), 1500);
+  try {
+    const res = await fetch(`${API_BASE}/api/health`);
+    if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+  } catch (err) {
+    throw new Error(`Couldn't reach the flashcard server: ${err.message}`);
+  } finally {
+    clearTimeout(slowTimer);
+  }
+}
+
 // Streams flashcard generation progress from the server (one SSE "slide" event per PDF page).
 // `onEvent` is called with { type, data } for each event: start | slide | slide-error | done | fatal-error.
 export async function generateFlashcardsStream(file, onEvent, { signal } = {}) {

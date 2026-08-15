@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 const SLIDE_CONCURRENCY = 2;
-const MAX_RETRIES = 8;
+const RETRIES_PER_MODEL = 2;
 const MIN_REQUEST_INTERVAL_MS = Number(process.env.LLM_MIN_INTERVAL_MS) || 2500;
 
 // One shared limiter for the whole server: the API key's rate limit is global,
@@ -60,19 +60,31 @@ function parseSuggestedRetryMs(message) {
   return match ? Math.ceil(parseFloat(match[1]) * 1000) + 750 : null;
 }
 
+// Walks the provider's model fallback chain (e.g. ~10 Gemini models with separate quota
+// pools). A quota/rate-limit error moves to the next model immediately — retrying the same
+// exhausted quota just wastes time. Only transient errors (overloaded/5xx) get a couple of
+// retries on the same model before also moving on.
 async function generateWithRetry(provider, prompt, image) {
+  const models = provider.modelFallbackChain ? provider.modelFallbackChain() : [undefined];
   let lastErr;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      await acquireSlot();
-      return await provider.generateText(prompt, { image });
-    } catch (err) {
-      lastErr = err;
-      const retryable = /429|rate|overloaded|503/i.test(err.message || '');
-      if (!retryable || attempt === MAX_RETRIES - 1) throw err;
-      const suggested = parseSuggestedRetryMs(err.message);
-      const backoff = suggested ?? 2000 * 2 ** attempt;
-      await new Promise((r) => setTimeout(r, backoff));
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
+      try {
+        await acquireSlot();
+        return await provider.generateText(prompt, { image, model });
+      } catch (err) {
+        lastErr = err;
+        const isQuota = /429|quota|rate/i.test(err.message || '');
+        const isTransient = /overloaded|502|503|504/i.test(err.message || '');
+
+        if (isTransient && attempt < RETRIES_PER_MODEL - 1) {
+          const suggested = parseSuggestedRetryMs(err.message);
+          await new Promise((r) => setTimeout(r, suggested ?? 1500 * 2 ** attempt));
+          continue; // retry the same model
+        }
+        break; // give up on this model (quota exhausted, or out of retries) — try the next one
+      }
     }
   }
   throw lastErr;

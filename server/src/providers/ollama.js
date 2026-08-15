@@ -8,11 +8,17 @@ export function modelSupportsVision() {
   return VISION_MODEL_HINTS.some((hint) => model.includes(hint));
 }
 
-export async function generateText(prompt, { image } = {}) {
-  const baseUrl = process.env.OLLAMA_BASE_URL || DEFAULT_BASE_URL;
-  const model = process.env.OLLAMA_MODEL || DEFAULT_MODEL;
+// Local models aren't subject to a hosted quota, so there's nothing meaningful to fall
+// back to — this just keeps the provider interface consistent with gemini.js.
+export function modelFallbackChain() {
+  return [process.env.OLLAMA_MODEL || DEFAULT_MODEL];
+}
 
-  const body = { model, prompt, stream: false };
+export async function generateText(prompt, { image, model } = {}) {
+  const baseUrl = process.env.OLLAMA_BASE_URL || DEFAULT_BASE_URL;
+  const useModel = model || process.env.OLLAMA_MODEL || DEFAULT_MODEL;
+
+  const body = { model: useModel, prompt, stream: false };
   if (image && modelSupportsVision()) body.images = [image.data];
 
   let res;
