@@ -5,22 +5,18 @@ import multer from 'multer';
 import { getProviderChain } from './providers/index.js';
 import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
-import { createRateLimiter } from './rateLimiter.js';
 import { requireAuth } from './auth.js';
+import { generateWithFallback, parseJsonArray } from './llm.js';
+import { buildQuizPrompt, groupCardsByTopic } from './quiz.js';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can carry a lot of card text
 
 const SLIDE_CONCURRENCY = 2;
-const RETRIES_PER_MODEL = 2;
-const MIN_REQUEST_INTERVAL_MS = Number(process.env.LLM_MIN_INTERVAL_MS) || 2500;
-
-// One shared limiter for the whole server: the API key's rate limit is global,
-// not per-upload, so every LLM call (across concurrent slides, across decks) queues through this.
-const acquireSlot = createRateLimiter(MIN_REQUEST_INTERVAL_MS);
+const TOPIC_CONCURRENCY = 3;
 
 function buildSlidePrompt(text, pageIndex, totalPages, hasImage) {
   const slideText = text || '(no extractable text on this slide)';
@@ -47,60 +43,6 @@ Write question/answer/mnemonic as plain text only, no markdown formatting.
 
 Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped like:
 {"question": "...", "answer": "...", "table": {"headers": [...], "rows": [[...]]} | null, "mnemonic": "...", "topic": "short topic tag"}`;
-}
-
-function dataUrlToImagePart(imageDataUrl) {
-  const match = imageDataUrl.match(/^data:([^;]+);base64,(.*)$/s);
-  if (!match) return null;
-  return { mimeType: match[1], data: match[2] };
-}
-
-function parseSuggestedRetryMs(message) {
-  const match = /retry in (\d+(?:\.\d+)?)s/i.exec(message || '');
-  return match ? Math.ceil(parseFloat(match[1]) * 1000) + 750 : null;
-}
-
-// Walks the full provider chain (e.g. ~10 Gemini models, then Groq's models as a
-// last-resort fallback from a completely separate vendor with its own quota). A
-// quota/rate-limit error moves on immediately — retrying the same exhausted quota just
-// wastes time. Only transient errors (overloaded/5xx) get a couple of retries first.
-// Vision support and the image note in the prompt are re-decided per provider, since
-// not every fallback vendor can see the slide image.
-async function generateWithRetry(providers, text, imageDataUrl, pageIndex, pageCount) {
-  let lastErr;
-
-  for (const provider of providers) {
-    const image = provider.supportsVision() ? dataUrlToImagePart(imageDataUrl) : null;
-    if (!text && !image) continue; // this provider has nothing to work with either — skip it
-    const prompt = buildSlidePrompt(text, pageIndex, pageCount, !!image);
-
-    const models = provider.modelFallbackChain ? provider.modelFallbackChain() : [undefined];
-    for (const model of models) {
-      for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
-        try {
-          await acquireSlot();
-          return await provider.generateText(prompt, { image, model });
-        } catch (err) {
-          lastErr = err;
-          const isTransient = /overloaded|502|503|504/i.test(err.message || '');
-
-          if (isTransient && attempt < RETRIES_PER_MODEL - 1) {
-            const suggested = parseSuggestedRetryMs(err.message);
-            await new Promise((r) => setTimeout(r, suggested ?? 1500 * 2 ** attempt));
-            continue; // retry the same model
-          }
-          break; // give up on this model (quota exhausted, or out of retries) — try the next one
-        }
-      }
-    }
-  }
-  throw lastErr;
-}
-
-function parseCards(raw) {
-  const jsonMatch = raw.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('Model did not return parseable JSON');
-  return JSON.parse(jsonMatch[0]);
 }
 
 app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, res) => {
@@ -132,8 +74,15 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
     await runWithConcurrency(pageIndexes, SLIDE_CONCURRENCY, async (pageIndex) => {
       const { text, imageDataUrl } = extractPage(doc, pageIndex);
       if (!text && !anyVision) return { pageIndex, cards: [], imageDataUrl };
-      const raw = await generateWithRetry(providerChain, text, imageDataUrl, pageIndex, pageCount);
-      const cards = parseCards(raw);
+
+      const raw = await generateWithFallback(providerChain, {
+        imageDataUrl,
+        buildPrompt: (hasImage) => {
+          if (!text && !hasImage) return null;
+          return buildSlidePrompt(text, pageIndex, pageCount, hasImage);
+        },
+      });
+      const cards = parseJsonArray(raw);
       return { pageIndex, cards, imageDataUrl };
     }, (index, result, err) => {
       if (err) {
@@ -146,6 +95,57 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
     send('done', { totalPages: pageCount });
   } catch (err) {
     send('fatal-error', { error: err.message || 'Generation failed' });
+  } finally {
+    res.end();
+  }
+});
+
+app.post('/api/generate-quiz', requireAuth, async (req, res) => {
+  const cards = req.body?.cards;
+  if (!Array.isArray(cards) || cards.length === 0) {
+    return res.status(400).json({ error: 'No deck cards provided' });
+  }
+
+  let providerChain;
+  try {
+    providerChain = getProviderChain();
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'No LLM provider configured' });
+  }
+
+  const topics = groupCardsByTopic(cards);
+  if (topics.length === 0) {
+    return res.status(400).json({ error: 'No topics found in this deck' });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  send('start', { totalTopics: topics.length, providers: providerChain.map((p) => p.name) });
+
+  try {
+    await runWithConcurrency(topics, TOPIC_CONCURRENCY, async (topic) => {
+      const raw = await generateWithFallback(providerChain, {
+        buildPrompt: () => buildQuizPrompt(topic.name, topic.cards),
+      });
+      const questions = parseJsonArray(raw);
+      return { topic: topic.name, questions };
+    }, (index, result, err) => {
+      const topicName = topics[index].name;
+      if (err) {
+        send('topic-error', { topic: topicName, error: err.message });
+      } else {
+        send('topic', { topic: topicName, questions: result.questions });
+      }
+    });
+
+    send('done', { totalTopics: topics.length });
+  } catch (err) {
+    send('fatal-error', { error: err.message || 'Quiz generation failed' });
   } finally {
     res.end();
   }

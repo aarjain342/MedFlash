@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import UploadPanel from '../components/UploadPanel';
 import DeckList from '../components/DeckList';
 import StudyView from '../components/StudyView';
+import QuizView from '../components/QuizView';
 import { loadDecks, upsertDeck, deleteDeck } from '../lib/db';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
@@ -9,6 +10,7 @@ import { supabaseConfigured } from '../lib/supabaseClient';
 export default function Dashboard() {
   const [decks, setDecks] = useState([]);
   const [studyingDeck, setStudyingDeck] = useState(null);
+  const [quizzingDeck, setQuizzingDeck] = useState(null);
   const { user, signOut } = useAuth();
 
   useEffect(() => {
@@ -56,12 +58,19 @@ export default function Dashboard() {
             onUpdateDeck={handleUpdateDeck}
             onExit={() => setStudyingDeck(null)}
           />
+        ) : quizzingDeck ? (
+          <QuizView deck={quizzingDeck} onExit={() => setQuizzingDeck(null)} />
         ) : (
           <>
             <UploadPanel onDeckCreated={handleDeckCreated} />
             <div className="panel">
               <h2>Your decks</h2>
-              <DeckList decks={decks} onStudy={setStudyingDeck} onDelete={handleDeleteDeck} />
+              <DeckList
+                decks={decks}
+                onStudy={setStudyingDeck}
+                onQuiz={setQuizzingDeck}
+                onDelete={handleDeleteDeck}
+              />
             </div>
           </>
         )}

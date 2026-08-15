@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { isDue } from '../lib/leitner';
 import { exportDeckToAnki } from '../lib/ankiExport';
 
-export default function DeckList({ decks, onStudy, onDelete }) {
+export default function DeckList({ decks, onStudy, onQuiz, onDelete }) {
   const [exportingId, setExportingId] = useState(null);
   const [exportError, setExportError] = useState('');
 
@@ -37,6 +37,7 @@ export default function DeckList({ decks, onStudy, onDelete }) {
             </div>
             <div className="deck-card-actions">
               <button className="primary" onClick={() => onStudy(deck)}>Study</button>
+              <button className="ghost" onClick={() => onQuiz(deck)}>USMLE Quiz</button>
               <button
                 className="ghost"
                 disabled={exportingId === deck.id}
