@@ -53,7 +53,15 @@ export default function QuizView({ deck, onExit }) {
     let total = 0;
 
     try {
-      await generateQuizStream(deck.cards, ({ type, data }) => {
+      // Only topic/question/answer feed the quiz prompt — strip everything else (notably
+      // the base64 slide images) so the request body stays small regardless of deck size.
+      const promptCards = deck.cards.map((c) => ({
+        topic: c.topic,
+        question: c.question,
+        answer: c.answer,
+      }));
+
+      await generateQuizStream(promptCards, ({ type, data }) => {
         if (type === 'start') {
           total = data.totalTopics;
           setGenProgress({ done: 0, total });
