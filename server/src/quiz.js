@@ -77,10 +77,10 @@ ${STYLE_EXAMPLES}
 
 Notice what these examples have in common: every one of them is 2nd-order (apply a concept to a new situation) or 3rd-order (integrate multiple concepts, reason through a mechanism, or predict a consequence) — none of them is a bare definition or "what is X" recall question. Match that. Every question you write must require the student to apply, connect, or reason through the material, never just recite it back. Use a clinical vignette (a brief patient scenario with relevant history/exam/labs) wherever the topic allows one; where a pure vignette doesn't fit (e.g. a mechanism or lab-bench scenario like example #3), use an applied scenario instead — but never a bare recall question.
 
-Write exactly 10 questions on this topic: TWO questions at each difficulty level 1 through 5. All ten are 2nd/3rd-order as described above — level 1-2 should require a single reasoning step from the material to the answer, while level 3-5 should require integrating multiple concepts or working through a multi-step clinical vignette (the kind that trips up strong students). The two questions at the same level must test genuinely different angles of the material (different fact, different scenario, different distractor set) — never near-duplicates of each other.
+Write exactly 3 questions on this topic, in increasing difficulty on a 1-5 scale (e.g. roughly 2, 3, 5) — all three are 2nd/3rd-order as described above, never bare recall, but the first should require a single reasoning step from the material to the answer while the last should integrate multiple concepts or work through a multi-step clinical vignette (the kind that trips up strong students). Each of the 3 must test a genuinely different angle of the material (different fact, different scenario, different distractor set) — never near-duplicates of each other.
 
 Each question needs exactly 5 answer options (A-E), only one correct, with 4 plausible distractors reflecting real classic exam confusions — not obviously wrong choices.
 
-Return ONLY a JSON array (no markdown fences, no commentary) of exactly 10 objects shaped like:
+Return ONLY a JSON array (no markdown fences, no commentary) of exactly 3 objects shaped like:
 {"difficulty": 1, "stem": "...", "options": ["...", "...", "...", "...", "..."], "correctIndex": 0, "explanation": "why the correct answer is right and, briefly, why each distractor is wrong"}`;
 }

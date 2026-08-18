@@ -97,7 +97,7 @@ export default function QuizView({ deck, onExit }) {
 
   function handleSubmit() {
     if (selected == null || !current || !quizState) return;
-    const result = submitAnswer(quizState, current.topicName, current.presented, selected);
+    const result = submitAnswer(quizState, current.topicName, current.index, current.presented, selected);
     setFeedback({ correct: result.correct, explanation: current.presented.explanation });
     void saveQuizState(deck.id, quizState);
   }

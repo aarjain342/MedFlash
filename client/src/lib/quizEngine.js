@@ -1,11 +1,11 @@
 // Adaptive USMLE-style quiz engine.
 //
-// The session runs in rounds by difficulty tier (1 -> 5): every active topic must clear
-// its current tier before the round advances, so the whole session gets harder as it
-// goes on. A wrong answer keeps the topic on the same tier and re-presents a DIFFERENT
-// question from that tier's pool (each tier has 2 pre-generated questions) as the very
-// next question — only once both have been shown does it start repeating. A topic is
-// "mastered" once its tier-5 question is answered correctly, and drops out of rotation.
+// Each topic gets a small pool of 3 pre-generated questions, ascending in difficulty. The
+// session round-robins across topics; getting a question right moves on to the next topic,
+// getting it wrong keeps you on the SAME topic for the next question — but always a
+// DIFFERENT one from that topic's pool (cycling through the 3), never the exact question
+// you just missed. A topic is "mastered" once all 3 of its questions have been answered
+// correctly (in any order) and then drops out of rotation.
 
 export function initQuizState(topicsWithQuestions) {
   const topics = {};
@@ -14,23 +14,13 @@ export function initQuizState(topicsWithQuestions) {
   for (const { name, questions } of topicsWithQuestions) {
     if (!questions || questions.length === 0) continue;
 
-    const pool = { 1: [], 2: [], 3: [], 4: [], 5: [] };
-    for (const q of questions) {
-      const tier = Math.min(5, Math.max(1, Math.round(q.difficulty) || 1));
-      pool[tier].push(q);
-    }
-    // Guard against a tier the model left empty — borrow a question from the nearest
-    // non-empty tier so getCurrentQuestion never dead-ends on this topic.
-    const nonEmpty = [1, 2, 3, 4, 5].map((t) => pool[t]).find((bucket) => bucket.length > 0);
-    for (let t = 1; t <= 5; t++) {
-      if (pool[t].length === 0 && nonEmpty) pool[t] = [nonEmpty[0]];
-    }
+    const sorted = [...questions].sort((a, b) => (a.difficulty || 0) - (b.difficulty || 0));
 
     topics[name] = {
       name,
-      pool,
-      shown: { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set(), 5: new Set() },
-      tier: 1,
+      questions: sorted,
+      correctFlags: sorted.map(() => false),
+      qCursor: 0, // index into `questions` of the one to present next
       mastered: false,
       attempts: 0,
       wrongInARow: 0,
@@ -38,7 +28,7 @@ export function initQuizState(topicsWithQuestions) {
     order.push(name);
   }
 
-  return { topics, order, cursor: 0, roundTier: 1, complete: order.length === 0 };
+  return { topics, order, cursor: 0, complete: order.length === 0 };
 }
 
 function shuffleOptions(question) {
@@ -56,86 +46,74 @@ function shuffleOptions(question) {
   };
 }
 
-// Picks a question from the topic's current-tier pool, preferring one not yet shown at
-// this tier so a wrong answer doesn't just repeat the same question. Only falls back to
-// re-showing one once every question at this tier has already been seen.
+// Picks the next not-yet-correct question in the topic's pool, starting from qCursor and
+// wrapping around — so a wrong answer's retry is always a different question, never the
+// one just missed, until every question in the pool has been tried.
 function pickQuestion(topic) {
-  const bucket = topic.pool[topic.tier];
-  const shownSet = topic.shown[topic.tier];
-
-  let idx = bucket.findIndex((_, i) => !shownSet.has(i));
-  if (idx === -1) idx = Math.floor(Math.random() * bucket.length);
-
-  shownSet.add(idx);
-  return bucket[idx];
+  const n = topic.questions.length;
+  for (let step = 0; step < n; step++) {
+    const idx = (topic.qCursor + step) % n;
+    if (!topic.correctFlags[idx]) return idx;
+  }
+  return topic.qCursor % n; // everything already correct (shouldn't happen — topic would be mastered)
 }
 
-// Advances past any topics that finished mastering in a prior round and rolls the round
-// tier forward once every remaining topic has cleared it. Returns null when every topic
-// is mastered (quiz complete).
+// Advances past any topics that finished mastering. Returns null when every topic is
+// mastered (quiz complete).
 function advanceCursor(state) {
   while (true) {
+    state.order = state.order.filter((name) => !state.topics[name].mastered);
     if (state.order.length === 0) {
       state.complete = true;
       return null;
     }
-    if (state.cursor >= state.order.length) {
-      state.order = state.order.filter((name) => !state.topics[name].mastered);
-      state.cursor = 0;
-      state.roundTier = Math.min(5, state.roundTier + 1);
-      if (state.order.length === 0) {
-        state.complete = true;
-        return null;
-      }
-      continue;
-    }
-    const topicName = state.order[state.cursor];
-    if (state.topics[topicName].mastered) {
-      state.order.splice(state.cursor, 1);
-      continue;
-    }
-    return topicName;
+    if (state.cursor >= state.order.length) state.cursor = 0;
+    return state.order[state.cursor];
   }
 }
 
-// Returns the current question to show: { topicName, tier, presented: { stem, options, correctIndex, explanation, difficulty } }
-// or null if the quiz is complete.
+// Returns the current question to show: { topicName, index, tier, presented: { stem, options, correctIndex, explanation, difficulty } }
+// or null if the quiz is complete. `index` must be passed back into submitAnswer.
 export function getCurrentQuestion(state) {
   const topicName = advanceCursor(state);
   if (!topicName) return null;
   const topic = state.topics[topicName];
-  const question = pickQuestion(topic);
-  return { topicName, tier: topic.tier, presented: shuffleOptions(question) };
+  const index = pickQuestion(topic);
+  topic.qCursor = index;
+  const question = topic.questions[index];
+  return { topicName, index, tier: question.difficulty, presented: shuffleOptions(question) };
 }
 
 // Call with the option index the user picked (relative to the shuffled `presented.options`
-// from the question you just showed). Returns { correct, mastered, topicName, tier }.
-export function submitAnswer(state, topicName, presented, selectedIndex) {
+// from the question you just showed) and the `index` from getCurrentQuestion. Returns
+// { correct, mastered, topicName }.
+export function submitAnswer(state, topicName, index, presented, selectedIndex) {
   const topic = state.topics[topicName];
   const correct = selectedIndex === presented.correctIndex;
   topic.attempts += 1;
 
   if (correct) {
     topic.wrongInARow = 0;
-    if (topic.tier === 5) {
-      topic.mastered = true;
-    } else {
-      topic.tier += 1;
-    }
-    state.cursor += 1;
+    topic.correctFlags[index] = true;
+    if (topic.correctFlags.every(Boolean)) topic.mastered = true;
+    state.cursor += 1; // move on to the next topic in rotation
   } else {
     topic.wrongInARow += 1;
-    // cursor intentionally not advanced — same topic/tier comes back as the next question
+    // state.cursor intentionally not advanced — same topic comes back as the next question
   }
+  topic.qCursor = (index + 1) % topic.questions.length; // next pick starts from a different question
 
-  return { correct, mastered: topic.mastered, topicName, tier: topic.tier };
+  return { correct, mastered: topic.mastered, topicName };
 }
 
 export function getTopicSummaries(state) {
-  return Object.values(state.topics).map((t) => ({
-    name: t.name,
-    tier: t.tier,
-    mastered: t.mastered,
-    struggling: t.wrongInARow >= 2,
-  }));
+  return Object.values(state.topics).map((t) => {
+    const nextQuestion = t.questions[t.qCursor] || t.questions[t.questions.length - 1];
+    return {
+      name: t.name,
+      tier: nextQuestion?.difficulty || 1,
+      mastered: t.mastered,
+      struggling: t.wrongInARow >= 2,
+    };
+  });
 }
