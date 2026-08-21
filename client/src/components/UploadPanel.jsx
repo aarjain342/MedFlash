@@ -13,9 +13,14 @@ export default function UploadPanel({ onDeckCreated }) {
   const [warning, setWarning] = useState('');
   const [progress, setProgress] = useState({ done: 0, total: 0, cardCount: 0 });
   const inputRef = useRef(null);
+  const inFlightRef = useRef(false);
 
   async function handleGenerate() {
-    if (!file) return;
+    // Guards against rapid double/triple-clicks firing overlapping requests — React's
+    // `disabled` prop update isn't synchronous, so a fast enough click sequence could
+    // otherwise slip through before the button actually disables.
+    if (!file || inFlightRef.current) return;
+    inFlightRef.current = true;
     setStatus('waking');
     setError('');
     setWarning('');
@@ -90,6 +95,8 @@ export default function UploadPanel({ onDeckCreated }) {
     } catch (err) {
       setError(err.message);
       setStatus('error');
+    } finally {
+      inFlightRef.current = false;
     }
   }
 

@@ -3,15 +3,30 @@ import { supabase, supabaseConfigured } from './supabaseClient';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787';
 
 // Free-tier hosts (e.g. Render) spin the backend down after inactivity — the first
-// request after a while can take 30-60s just to wake it up. Ping /api/health first so
-// the UI can show a "waking up" message instead of looking frozen during that wait.
+// request after a while can take 30-60s just to wake it up, and while the container is
+// still binding its port the very first ping can flat-out fail (connection refused /
+// Cloudflare 502) rather than just be slow. Ping /api/health first, retrying through that
+// startup window, so the UI can show a "waking up" message instead of surfacing a bare
+// "Failed to fetch" for what's really just a cold start.
+const WAKE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 8000, 8000]; // ~31s total budget
+
 export async function waitForServer(onSlowStart) {
   const slowTimer = setTimeout(() => onSlowStart?.(), 1500);
+  let lastErr;
   try {
-    const res = await fetch(`${API_BASE}/api/health`);
-    if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
-  } catch (err) {
-    throw new Error(`Couldn't reach the flashcard server: ${err.message}`);
+    for (let attempt = 0; attempt <= WAKE_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const res = await fetch(`${API_BASE}/api/health`);
+        if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < WAKE_RETRY_DELAYS_MS.length) {
+          await new Promise((r) => setTimeout(r, WAKE_RETRY_DELAYS_MS[attempt]));
+        }
+      }
+    }
+    throw new Error(`Couldn't reach the flashcard server: ${lastErr.message}`);
   } finally {
     clearTimeout(slowTimer);
   }
