@@ -7,14 +7,28 @@
 // you just missed. A topic is "mastered" once all 3 of its questions have been answered
 // correctly (in any order) and then drops out of rotation.
 
+// Defensive check on top of the server's own validation — guards against stale cached
+// quiz state from before a schema/validation change, so a malformed question degrades to
+// "just skip it" instead of crashing the render to a blank screen.
+function isValidQuestion(q) {
+  return (
+    q &&
+    typeof q.stem === 'string' && q.stem.trim().length > 0 &&
+    Array.isArray(q.options) && q.options.length >= 2 &&
+    q.options.every((o) => typeof o === 'string') &&
+    Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < q.options.length
+  );
+}
+
 export function initQuizState(topicsWithQuestions) {
   const topics = {};
   const order = [];
 
   for (const { name, questions } of topicsWithQuestions) {
-    if (!questions || questions.length === 0) continue;
+    const valid = (questions || []).filter(isValidQuestion);
+    if (valid.length === 0) continue;
 
-    const sorted = [...questions].sort((a, b) => (a.difficulty || 0) - (b.difficulty || 0));
+    const sorted = [...valid].sort((a, b) => (a.difficulty || 0) - (b.difficulty || 0));
 
     topics[name] = {
       name,

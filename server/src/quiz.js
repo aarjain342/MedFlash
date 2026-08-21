@@ -15,6 +15,33 @@ export function groupCardsByTopic(cards) {
   return [...byKey.values()];
 }
 
+const OPTION_LABEL_PREFIX = /^[A-Ea-e][.):]\s*/;
+
+function isValidQuestion(q) {
+  return (
+    q &&
+    typeof q.stem === 'string' && q.stem.trim().length > 0 &&
+    Array.isArray(q.options) && q.options.length >= 2 &&
+    q.options.every((o) => typeof o === 'string' && o.trim().length > 0) &&
+    Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < q.options.length &&
+    typeof q.explanation === 'string' && q.explanation.trim().length > 0
+  );
+}
+
+// Drops any question the model returned in a malformed shape (missing/wrong-type fields,
+// an out-of-range correctIndex, etc.) instead of letting it crash rendering downstream —
+// this happens more often once the fallback chain reaches less strictly-instructed models.
+// Also strips stray "A. "/"B) " style labels some models add to option text despite being
+// told not to — those become actively misleading once options get shuffled client-side.
+export function sanitizeQuestions(questions) {
+  if (!Array.isArray(questions)) return [];
+  return questions.filter(isValidQuestion).map((q) => ({
+    ...q,
+    difficulty: Number.isFinite(q.difficulty) ? q.difficulty : 3,
+    options: q.options.map((o) => o.replace(OPTION_LABEL_PREFIX, '').trim()),
+  }));
+}
+
 const STYLE_EXAMPLES = `Practice Question #1
 Methotrexate is often used as a chemotherapeutic agent to treat patients with leukemia. It inhibits the synthesis of deoxythymidine by preventing regeneration of THF by inhibiting the enzyme DHFR. Which of the following checkpoints becomes dysfunctional and prevents cell cycle progression with methotrexate?
 A. Cyclin D/CDK4

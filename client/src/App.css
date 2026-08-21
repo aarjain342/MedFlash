@@ -188,6 +188,12 @@
   margin-top: 12px;
 }
 
+.error-boundary-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .file-drop {
   display: flex;
   align-items: center;

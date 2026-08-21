@@ -3,6 +3,7 @@ import UploadPanel from '../components/UploadPanel';
 import DeckList from '../components/DeckList';
 import StudyView from '../components/StudyView';
 import QuizView from '../components/QuizView';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { loadDecks, upsertDeck, deleteDeck } from '../lib/db';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
@@ -53,13 +54,25 @@ export default function Dashboard() {
 
       <main className="app-main">
         {studyingDeck ? (
-          <StudyView
-            deck={studyingDeck}
-            onUpdateDeck={handleUpdateDeck}
+          <ErrorBoundary
+            key={studyingDeck.id}
+            label="Studying this deck hit a problem."
             onExit={() => setStudyingDeck(null)}
-          />
+          >
+            <StudyView
+              deck={studyingDeck}
+              onUpdateDeck={handleUpdateDeck}
+              onExit={() => setStudyingDeck(null)}
+            />
+          </ErrorBoundary>
         ) : quizzingDeck ? (
-          <QuizView deck={quizzingDeck} onExit={() => setQuizzingDeck(null)} />
+          <ErrorBoundary
+            key={quizzingDeck.id}
+            label="The quiz hit a problem — this can happen if one of the generated questions came back malformed."
+            onExit={() => setQuizzingDeck(null)}
+          >
+            <QuizView deck={quizzingDeck} onExit={() => setQuizzingDeck(null)} />
+          </ErrorBoundary>
         ) : (
           <>
             <UploadPanel onDeckCreated={handleDeckCreated} />

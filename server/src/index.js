@@ -7,7 +7,7 @@ import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
 import { generateWithFallback, parseJsonArray } from './llm.js';
-import { buildQuizPrompt, groupCardsByTopic } from './quiz.js';
+import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
@@ -147,7 +147,8 @@ app.post('/api/generate-quiz', requireAuth, async (req, res) => {
       const raw = await generateWithFallback(providerChain, {
         buildPrompt: () => buildQuizPrompt(topic.name, topic.cards),
       });
-      const questions = parseJsonArray(raw);
+      const questions = sanitizeQuestions(parseJsonArray(raw));
+      if (questions.length === 0) throw new Error('Model returned no valid questions for this topic');
       return { topic: topic.name, questions };
     }, (index, result, err) => {
       const topicName = topics[index].name;
