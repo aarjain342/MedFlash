@@ -17,6 +17,18 @@ app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can c
 
 const SLIDE_CONCURRENCY = 2;
 const TOPIC_CONCURRENCY = 3;
+const HEARTBEAT_MS = 15000;
+
+// Render sits behind Cloudflare, which kills a connection after too long with no new
+// bytes. A slow slide/topic (working through several rate-limited models in the fallback
+// chain) can easily go quiet for over a minute, so without this the whole SSE stream gets
+// dropped mid-generation — surfacing to the browser as a bare "Failed to fetch". An SSE
+// comment line (leading `:`) keeps the connection alive without being treated as an event
+// by the client's parser, which only looks for `event:`/`data:` lines.
+function startHeartbeat(res) {
+  const timer = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+  return () => clearInterval(timer);
+}
 
 function buildSlidePrompt(text, pageIndex, totalPages, hasImage) {
   const slideText = text || '(no extractable text on this slide)';
@@ -64,6 +76,7 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
     Connection: 'keep-alive',
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const stopHeartbeat = startHeartbeat(res);
 
   send('start', { totalPages: pageCount, providers: providerChain.map((p) => p.name) });
 
@@ -96,6 +109,7 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
   } catch (err) {
     send('fatal-error', { error: err.message || 'Generation failed' });
   } finally {
+    stopHeartbeat();
     res.end();
   }
 });
@@ -124,6 +138,7 @@ app.post('/api/generate-quiz', requireAuth, async (req, res) => {
     Connection: 'keep-alive',
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const stopHeartbeat = startHeartbeat(res);
 
   send('start', { totalTopics: topics.length, providers: providerChain.map((p) => p.name) });
 
@@ -147,6 +162,7 @@ app.post('/api/generate-quiz', requireAuth, async (req, res) => {
   } catch (err) {
     send('fatal-error', { error: err.message || 'Quiz generation failed' });
   } finally {
+    stopHeartbeat();
     res.end();
   }
 });
