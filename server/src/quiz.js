@@ -1,15 +1,29 @@
 const MAX_CARDS_PER_TOPIC_PROMPT = 10;
 
+// Client-supplied values, so every field is coerced rather than trusted to be a string —
+// a non-string topic (object/array) used to throw here and take the whole process down.
+function asText(value, max = 2000) {
+  if (typeof value === 'string') return value.slice(0, max);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
 // Groups a deck's flashcards by their topic tag so one quiz-question generation call
 // can cover a whole topic's material at once, instead of one call per card.
 export function groupCardsByTopic(cards) {
   const byKey = new Map();
+  if (!Array.isArray(cards)) return [];
 
   for (const card of cards) {
-    const name = (card.topic || '').trim() || 'General';
+    if (!card || typeof card !== 'object') continue;
+    const name = asText(card.topic, 120).trim() || 'General';
+    const question = asText(card.question);
+    const answer = asText(card.answer);
+    if (!question && !answer) continue;
+
     const key = name.toLowerCase();
     if (!byKey.has(key)) byKey.set(key, { name, cards: [] });
-    byKey.get(key).cards.push(card);
+    byKey.get(key).cards.push({ topic: name, question, answer });
   }
 
   return [...byKey.values()];

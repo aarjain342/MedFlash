@@ -10,9 +10,27 @@ import { generateWithFallback, parseJsonArray } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
 
-app.use(cors());
+// Only the app's own front ends may call this API from a browser. Previously this was a
+// bare cors() — i.e. Access-Control-Allow-Origin: *, letting any site on the internet
+// script requests against it with a victim's token.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://med-flash-gamma.vercel.app,http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header = non-browser client (curl, server-to-server); nothing to protect there.
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    },
+  })
+);
+app.disable('x-powered-by');
 app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can carry a lot of card text
 
 const SLIDE_CONCURRENCY = 2;
@@ -127,7 +145,12 @@ app.post('/api/generate-quiz', requireAuth, async (req, res) => {
     return res.status(400).json({ error: err.message || 'No LLM provider configured' });
   }
 
-  const topics = groupCardsByTopic(cards);
+  let topics;
+  try {
+    topics = groupCardsByTopic(cards);
+  } catch (err) {
+    return res.status(400).json({ error: 'Could not read the deck cards' });
+  }
   if (topics.length === 0) {
     return res.status(400).json({ error: 'No topics found in this deck' });
   }
@@ -169,6 +192,29 @@ app.post('/api/generate-quiz', requireAuth, async (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+// Catch-all error handler. Without this, multer's LIMIT_FILE_SIZE (and anything else
+// thrown in middleware) fell through to Express's default handler and returned a 500
+// HTML page instead of a useful status.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: `PDF is too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB)` });
+  }
+  console.error('Unhandled request error:', err);
+  if (res.headersSent) return res.end();
+  res.status(500).json({ error: 'Something went wrong handling that request' });
+});
+
+// Last-resort guards: a single malformed request must never be able to take the whole
+// service down for everyone. Node's default behaviour on an unhandled rejection is to
+// terminate the process, which is exactly the DoS we want to avoid here.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (kept process alive):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (kept process alive):', err);
+});
 
 const port = process.env.PORT || 8787;
 app.listen(port, () => console.log(`MedFlash server listening on http://localhost:${port}`));
