@@ -6,7 +6,7 @@ import { getProviderChain } from './providers/index.js';
 import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
-import { rateLimit } from './rateLimit.js';
+import { rateLimit, exemptCount, limitsSummary } from './rateLimit.js';
 import { generateWithFallback, parseJsonArray } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 
@@ -197,7 +197,9 @@ app.post('/api/generate-quiz', requireAuth, rateLimit, async (req, res) => {
   }
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) =>
+  res.json({ ok: true, rateLimit: { ...limitsSummary(), exemptUsers: exemptCount() } })
+);
 
 // Catch-all error handler. Without this, multer's LIMIT_FILE_SIZE (and anything else
 // thrown in middleware) fell through to Express's default handler and returned a 500

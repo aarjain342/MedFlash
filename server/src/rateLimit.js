@@ -24,6 +24,16 @@ const EXEMPT_EMAILS = new Set(
     .filter(Boolean)
 );
 
+// Exposed for the health check so a misconfigured allowlist is visible without having to
+// sign in as an exempt user. Deliberately a count, never the addresses themselves.
+export function exemptCount() {
+  return EXEMPT_EMAILS.size;
+}
+
+export function limitsSummary() {
+  return { perHour: HOURLY_LIMIT, perDay: DAILY_LIMIT };
+}
+
 /** @type {Map<string, number[]>} key -> ascending request timestamps */
 const hits = new Map();
 
