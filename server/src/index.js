@@ -6,6 +6,7 @@ import { getProviderChain } from './providers/index.js';
 import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
+import { rateLimit } from './rateLimit.js';
 import { generateWithFallback, parseJsonArray } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 
@@ -31,6 +32,9 @@ app.use(
   })
 );
 app.disable('x-powered-by');
+// Render terminates TLS at its proxy, so without this req.ip is the proxy's address and
+// the rate limiter's IP fallback would lump every client into one bucket.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can carry a lot of card text
 
 const SLIDE_CONCURRENCY = 2;
@@ -75,7 +79,9 @@ Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped l
 {"question": "...", "answer": "...", "table": {"headers": [...], "rows": [[...]]} | null, "mnemonic": "...", "topic": "short topic tag"}`;
 }
 
-app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, res) => {
+// rateLimit sits after requireAuth (so it can key on the verified user) but before
+// multer, so a rejected request never buffers a 40MB upload into memory.
+app.post('/api/generate-stream', requireAuth, rateLimit, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
 
   let providerChain;
@@ -132,7 +138,7 @@ app.post('/api/generate-stream', requireAuth, upload.single('pdf'), async (req, 
   }
 });
 
-app.post('/api/generate-quiz', requireAuth, async (req, res) => {
+app.post('/api/generate-quiz', requireAuth, rateLimit, async (req, res) => {
   const cards = req.body?.cards;
   if (!Array.isArray(cards) || cards.length === 0) {
     return res.status(400).json({ error: 'No deck cards provided' });
