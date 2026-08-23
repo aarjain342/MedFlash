@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { getProviderChain } from './providers/index.js';
-import { openPdf, extractPage } from './pdf.js';
+import { openSource } from './documentSource.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
 import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './rateLimit.js';
@@ -58,9 +58,9 @@ function buildSlidePrompt(text, pageIndex, totalPages, hasImage) {
   const imageNote = hasImage
     ? '\nAn image of the slide is also attached — use it to read any diagrams, charts, labeled figures, or text that the extracted text above missed. If the slide is primarily a diagram/figure, base the flashcard(s) on what the image shows.'
     : '';
-  return `You are making Anki-style flashcards for a first-year medical student, from ONE slide of a lecture deck (slide ${pageIndex + 1} of ${totalPages}).
+  return `You are making Anki-style flashcards for a first-year medical student, from ONE section of their study material (section ${pageIndex + 1} of ${totalPages}).
 
-Slide text (extracted from the PDF):
+Section text:
 """
 ${slideText}
 """
@@ -83,17 +83,17 @@ Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped l
 // rateLimit sits after requireAuth (so it can key on the verified user) but before
 // multer, so a rejected request never buffers a 40MB upload into memory.
 app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, upload.single('pdf'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   let providerChain;
-  let doc;
-  let pageCount;
+  let source;
   try {
     providerChain = getProviderChain();
-    ({ doc, pageCount } = openPdf(req.file.buffer));
+    source = await openSource(req.file);
   } catch (err) {
-    return res.status(400).json({ error: err.message || 'Failed to open PDF' });
+    return res.status(400).json({ error: err.message || 'Failed to open file' });
   }
+  const pageCount = source.pageCount;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -110,7 +110,7 @@ app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, uplo
 
   try {
     await runWithConcurrency(pageIndexes, SLIDE_CONCURRENCY, async (pageIndex) => {
-      const { text, imageDataUrl } = extractPage(doc, pageIndex);
+      const { text, imageDataUrl } = source.getPage(pageIndex);
       if (!text && !anyVision) return { pageIndex, cards: [], imageDataUrl };
 
       const raw = await generateWithFallback(providerChain, {
@@ -231,7 +231,7 @@ app.get('/api/health', (_req, res) =>
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: `PDF is too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB)` });
+    return res.status(413).json({ error: `File is too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB)` });
   }
   console.error('Unhandled request error:', err);
   if (res.headersSent) return res.end();

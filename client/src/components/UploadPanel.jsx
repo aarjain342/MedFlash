@@ -73,12 +73,12 @@ export default function UploadPanel({ onDeckCreated }) {
       }
 
       if (cards.length === 0) {
-        throw new Error('No flashcards could be generated from this PDF.');
+        throw new Error('No flashcards could be generated from this file.');
       }
 
       const deck = {
         id: makeId(),
-        name: file.name.replace(/\.pdf$/i, ''),
+        name: file.name.replace(/\.(pdf|pptx|docx)$/i, ''),
         sourceFile: file.name,
         createdAt: Date.now(),
         cards,
@@ -89,7 +89,7 @@ export default function UploadPanel({ onDeckCreated }) {
       setStatus('idle');
       if (failedSlides.length > 0) {
         setWarning(
-          `Deck created, but ${failedSlides.length} slide${failedSlides.length > 1 ? 's' : ''} (${failedSlides.join(', ')}) failed to generate — likely a rate limit. You can re-upload the PDF to retry; already-generated cards won't be duplicated into a new deck.`
+          `Deck created, but ${failedSlides.length} section${failedSlides.length > 1 ? 's' : ''} (${failedSlides.join(', ')}) failed to generate — likely a rate limit. You can re-upload the file to retry; already-generated cards won't be duplicated into a new deck.`
         );
       }
     } catch (err) {
@@ -102,21 +102,22 @@ export default function UploadPanel({ onDeckCreated }) {
 
   return (
     <div className="panel upload-panel">
-      <h2>Create a deck from a PDF</h2>
+      <h2>Create a deck from your notes</h2>
       <p className="muted">
-        Upload a lecture slide deck. MedFlash goes slide by slide — reading both the text and
-        the slide image — and makes clear, consolidated flashcards (with tables and memory tricks
-        where they help) plus the source slide image attached to each card.
+        Upload a PDF, PowerPoint, or Word document. MedFlash goes section by section — reading
+        both the text and (for PDFs) the slide image — and makes clear, consolidated flashcards
+        (with tables and memory tricks where they help) plus the source slide image attached
+        where available.
       </p>
 
       <label className="file-drop">
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf"
+          accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
-        {file ? file.name : 'Choose a PDF…'}
+        {file ? file.name : 'Choose a PDF, PPTX, or DOCX…'}
       </label>
 
       <button
