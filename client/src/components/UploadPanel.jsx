@@ -57,7 +57,13 @@ export default function UploadPanel({ onDeckCreated }) {
       const sortedPages = [...cardsByPage.keys()].sort((a, b) => a - b);
       for (const page of sortedPages) {
         const { cards: pageCards, image } = cardsByPage.get(page);
-        for (const c of pageCards) {
+        // A slide often yields 2-3 cards, but they all show the SAME source image. Storing
+        // that (often 100KB+) base64 image on every one of those cards was tripling/
+        // quadrupling deck size for no reason — one real deck hit ~30MB this way, which is
+        // almost certainly why Supabase saves for image-heavy decks kept hitting the
+        // statement timeout. Only the first card for a page keeps the image; StudyView
+        // looks it up from a sibling card sharing the same page when it's missing.
+        pageCards.forEach((c, i) => {
           cards.push({
             id: makeId(),
             question: c.question,
@@ -66,10 +72,10 @@ export default function UploadPanel({ onDeckCreated }) {
             mnemonic: c.mnemonic || '',
             topic: c.topic || '',
             page,
-            image,
+            image: i === 0 ? image : null,
             ...initCardProgress(),
           });
-        }
+        });
       }
 
       if (cards.length === 0) {

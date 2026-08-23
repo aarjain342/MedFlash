@@ -31,6 +31,10 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
   const [sessionDone, setSessionDone] = useState(queue.length === 0);
 
   const current = queue[index];
+  // Only the first card generated from a given page keeps its source image (see
+  // UploadPanel) to avoid storing the same image on every card from that page — so a card
+  // without one looks it up from a sibling that shares its page.
+  const currentImage = current?.image || deck.cards.find((c) => c.page === current?.page && c.image)?.image;
 
   function handleAnswer(remembered) {
     const updatedCard = reviewCard(current, remembered);
@@ -79,10 +83,10 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
         </div>
       </div>
 
-      {current.image && (
+      {currentImage && (
         <details className="slide-image-toggle">
           <summary>View source slide{current.page ? ` (slide ${current.page})` : ''}</summary>
-          <img className="slide-image" src={current.image} alt={`Source slide ${current.page || ''}`} />
+          <img className="slide-image" src={currentImage} alt={`Source slide ${current.page || ''}`} />
         </details>
       )}
 
