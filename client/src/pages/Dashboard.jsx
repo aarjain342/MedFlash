@@ -10,12 +10,16 @@ import { supabaseConfigured } from '../lib/supabaseClient';
 
 export default function Dashboard() {
   const [decks, setDecks] = useState([]);
+  const [decksLoading, setDecksLoading] = useState(true);
+  const [busyDeckId, setBusyDeckId] = useState(null);
   const [studyingDeck, setStudyingDeck] = useState(null);
   const [quizzingDeck, setQuizzingDeck] = useState(null);
   const { user, signOut } = useAuth();
 
   useEffect(() => {
-    loadDecks().then(setDecks);
+    loadDecks()
+      .then(setDecks)
+      .finally(() => setDecksLoading(false));
   }, []);
 
   async function handleDeckCreated(deck) {
@@ -28,7 +32,12 @@ export default function Dashboard() {
   }
 
   async function handleDeleteDeck(id) {
-    setDecks(await deleteDeck(id));
+    setBusyDeckId(id);
+    try {
+      setDecks(await deleteDeck(id));
+    } finally {
+      setBusyDeckId(null);
+    }
   }
 
   return (
@@ -78,12 +87,20 @@ export default function Dashboard() {
             <UploadPanel onDeckCreated={handleDeckCreated} />
             <div className="panel">
               <h2>Your decks</h2>
-              <DeckList
-                decks={decks}
-                onStudy={setStudyingDeck}
-                onQuiz={setQuizzingDeck}
-                onDelete={handleDeleteDeck}
-              />
+              {decksLoading ? (
+                <div className="decks-loading">
+                  <span className="spinner" aria-hidden="true" />
+                  <span className="muted">Loading your decks…</span>
+                </div>
+              ) : (
+                <DeckList
+                  decks={decks}
+                  busyDeckId={busyDeckId}
+                  onStudy={setStudyingDeck}
+                  onQuiz={setQuizzingDeck}
+                  onDelete={handleDeleteDeck}
+                />
+              )}
             </div>
           </>
         )}

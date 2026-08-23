@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { isDue } from '../lib/leitner';
 import { exportDeckToAnki } from '../lib/ankiExport';
 
-export default function DeckList({ decks, onStudy, onQuiz, onDelete }) {
+export default function DeckList({ decks, busyDeckId, onStudy, onQuiz, onDelete }) {
   const [exportingId, setExportingId] = useState(null);
   const [exportError, setExportError] = useState('');
 
@@ -27,8 +27,9 @@ export default function DeckList({ decks, onStudy, onQuiz, onDelete }) {
       {exportError && <p className="error">{exportError}</p>}
       {decks.map((deck) => {
         const dueCount = deck.cards.filter(isDue).length;
+        const isBusy = busyDeckId === deck.id;
         return (
-          <div className="deck-card" key={deck.id}>
+          <div className={`deck-card ${isBusy ? 'is-busy' : ''}`} key={deck.id}>
             <div className="deck-card-main">
               <h3>{deck.name}</h3>
               <p className="muted">
@@ -36,16 +37,18 @@ export default function DeckList({ decks, onStudy, onQuiz, onDelete }) {
               </p>
             </div>
             <div className="deck-card-actions">
-              <button className="primary" onClick={() => onStudy(deck)}>Study</button>
-              <button className="ghost" onClick={() => onQuiz(deck)}>USMLE Quiz</button>
+              <button className="primary" disabled={isBusy} onClick={() => onStudy(deck)}>Study</button>
+              <button className="ghost" disabled={isBusy} onClick={() => onQuiz(deck)}>USMLE Quiz</button>
               <button
                 className="ghost"
-                disabled={exportingId === deck.id}
+                disabled={isBusy || exportingId === deck.id}
                 onClick={() => handleExport(deck)}
               >
                 {exportingId === deck.id ? 'Exporting…' : 'Export to Anki'}
               </button>
-              <button className="ghost" onClick={() => onDelete(deck.id)}>Delete</button>
+              <button className="ghost" disabled={isBusy} onClick={() => onDelete(deck.id)}>
+                {isBusy ? 'Deleting…' : 'Delete'}
+              </button>
             </div>
           </div>
         );

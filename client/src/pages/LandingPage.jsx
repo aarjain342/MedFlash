@@ -73,7 +73,7 @@ export default function LandingPage() {
             <Link to="/signup" className="pill-button hero-cta">Get started free</Link>
           </div>
 
-          <div className="float-card deck-card">
+          <div className="float-card mock-deck-card">
             <div className="deck-card-title">Today's deck</div>
             <div className="deck-row">
               <span className="deck-tag tag-red">Cardiac cycle</span>
