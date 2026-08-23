@@ -11,8 +11,12 @@ const QUIZZES_STORE = 'quizzes';
 
 async function getUserId() {
   if (!supabaseConfigured) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  // getSession() reads the already-cached local session (the SDK keeps it refreshed in
+  // the background) instead of getUser(), which hits Supabase's auth server over the
+  // network on every call — this runs before every deck/quiz operation, so that extra
+  // round-trip was adding real, visible lag to what should feel instant.
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 function openDb() {
