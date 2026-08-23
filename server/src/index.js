@@ -7,7 +7,7 @@ import { openSource } from './documentSource.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
 import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './rateLimit.js';
-import { generateWithFallback, parseJsonArray } from './llm.js';
+import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
 
@@ -120,7 +120,7 @@ app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, uplo
           return buildSlidePrompt(text, pageIndex, pageCount, hasImage);
         },
       });
-      const cards = parseJsonArray(raw);
+      const cards = sanitizeCards(parseJsonArray(raw));
       return { pageIndex, cards, imageDataUrl };
     }, (index, result, err) => {
       if (err) {

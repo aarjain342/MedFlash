@@ -38,6 +38,12 @@ export async function generateText(prompt, { image, model } = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts }],
+      // Without a cap, a rambling response (especially from weaker fallback models) can
+      // run to tens of thousands of characters for a single slide — which then lands
+      // straight in the deck's cards JSONB and was a real cause of Supabase statement
+      // timeouts on save. This bounds each slide's response to comfortably more than the
+      // 2-3 well-formed cards the prompt asks for.
+      generationConfig: { maxOutputTokens: 4096 },
     }),
   });
 

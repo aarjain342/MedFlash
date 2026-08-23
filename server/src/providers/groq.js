@@ -34,6 +34,9 @@ export async function generateText(prompt, { model } = {}) {
     body: JSON.stringify({
       model: useModel,
       messages: [{ role: 'user', content: prompt }],
+      // See gemini.js for why this cap exists — bounds a single slide's response so a
+      // runaway generation can't balloon the deck payload past Supabase's statement timeout.
+      max_tokens: 4096,
     }),
   });
 

@@ -63,3 +63,37 @@ export function parseJsonArray(raw) {
   if (!jsonMatch) throw new Error('Model did not return parseable JSON');
   return JSON.parse(jsonMatch[0]);
 }
+
+function asText(value, max = 3000) {
+  if (typeof value === 'string') return value.slice(0, max).trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function sanitizeTable(table) {
+  if (!table || typeof table !== 'object') return null;
+  if (!Array.isArray(table.headers) || !Array.isArray(table.rows)) return null;
+  const headers = table.headers.slice(0, 12).map((h) => asText(h, 120));
+  const rows = table.rows.slice(0, 30).map((row) => (Array.isArray(row) ? row.slice(0, 12).map((cell) => asText(cell, 300)) : []));
+  if (headers.length === 0 || rows.length === 0) return null;
+  return { headers, rows };
+}
+
+// Caps every field's size and coerces types before a card ever reaches the client/deck
+// JSONB — a verbose or malformed model response (more likely from weaker fallback models)
+// used to flow straight into the saved deck uncapped, which was a real contributor to
+// Supabase "statement timeout" errors on save for large decks. Mirrors the asText/
+// sanitizeQuestions pattern in quiz.js, which exists for the same class of problem.
+export function sanitizeCards(cards) {
+  if (!Array.isArray(cards)) return [];
+  return cards
+    .filter((c) => c && typeof c === 'object')
+    .map((c) => ({
+      question: asText(c.question, 600),
+      answer: asText(c.answer, 3000),
+      table: sanitizeTable(c.table),
+      mnemonic: asText(c.mnemonic, 400),
+      topic: asText(c.topic, 120),
+    }))
+    .filter((c) => c.question && c.answer);
+}

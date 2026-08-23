@@ -116,17 +116,32 @@ async function loadDecksRemote(userId) {
   return data.map(rowToDeck);
 }
 
+// Postgres error code 57014 = statement timeout. A large/slow-to-write deck can trip this
+// transiently (e.g. under momentary DB load) even when the payload itself is reasonable,
+// so one retry after a short pause is worth it before giving up.
+function isRetryableSaveError(error) {
+  return error?.code === '57014' || /statement timeout/i.test(error?.message || '');
+}
+
 async function upsertDeckRemote(userId, deck) {
-  const { error } = await supabase.from('decks').upsert({
+  const row = {
     id: deck.id,
     user_id: userId,
     name: deck.name,
     source_file: deck.sourceFile,
     created_at: deck.createdAt,
     cards: deck.cards,
-  });
-  if (error) throw error;
-  return loadDecksRemote(userId);
+  };
+
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await supabase.from('decks').upsert(row);
+    if (!error) return loadDecksRemote(userId);
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
 }
 
 async function deleteDeckRemote(userId, id) {
