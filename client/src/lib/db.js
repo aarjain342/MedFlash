@@ -65,13 +65,12 @@ async function loadDecksLocal() {
 
 async function upsertDeckLocal(deck) {
   await withStore(DECKS_STORE, 'readwrite', (store) => store.put(deck));
-  return loadDecksLocal();
+  return deck;
 }
 
 async function deleteDeckLocal(id) {
   await withStore(DECKS_STORE, 'readwrite', (store) => store.delete(id));
   await withStore(QUIZZES_STORE, 'readwrite', (store) => store.delete(id));
-  return loadDecksLocal();
 }
 
 async function loadQuizStateLocal(deckId) {
@@ -136,7 +135,12 @@ async function upsertDeckRemote(userId, deck) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt++) {
     const { error } = await supabase.from('decks').upsert(row);
-    if (!error) return loadDecksRemote(userId);
+    // Deliberately not reloading the full deck list here: that used to re-SELECT every
+    // deck's cards (including images) just to hand back an updated array, so saving one
+    // small deck could still fail if ANY other deck in the account was large enough to make
+    // that reload trip the statement timeout. The caller already has the deck it just
+    // saved — no need to round-trip for it.
+    if (!error) return deck;
     lastError = error;
     if (!isRetryableSaveError(error)) throw error;
     await new Promise((r) => setTimeout(r, 1500));
@@ -148,7 +152,6 @@ async function deleteDeckRemote(userId, id) {
   await supabase.from('quizzes').delete().eq('deck_id', id);
   const { error } = await supabase.from('decks').delete().eq('id', id);
   if (error) throw error;
-  return loadDecksRemote(userId);
 }
 
 async function loadQuizStateRemote(deckId) {

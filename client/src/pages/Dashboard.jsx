@@ -51,18 +51,21 @@ export default function Dashboard() {
   }
 
   async function handleDeckCreated(deck) {
-    setDecks(await upsertDeck(deck));
+    const saved = await upsertDeck(deck);
+    setDecks((prev) => [saved, ...prev.filter((d) => d.id !== saved.id)]);
   }
 
   async function handleUpdateDeck(deck) {
-    setDecks(await upsertDeck(deck));
-    setStudyingDeck(deck);
+    const saved = await upsertDeck(deck);
+    setDecks((prev) => prev.map((d) => (d.id === saved.id ? saved : d)));
+    setStudyingDeck(saved);
   }
 
   async function handleDeleteDeck(id) {
     setBusyDeckId(id);
     try {
-      setDecks(await deleteDeck(id));
+      await deleteDeck(id);
+      setDecks((prev) => prev.filter((d) => d.id !== id));
     } finally {
       setBusyDeckId(null);
     }
