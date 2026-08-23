@@ -18,28 +18,47 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 20px;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
+/* A small chart-tab glyph — corner folded like an index card — instead of a generic
+   four-dot logo mark. */
 .brand-mark {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 3px;
-  width: 22px;
-  height: 22px;
+  position: relative;
+  width: 20px;
+  height: 24px;
+  background: var(--surface);
+  border: 1.5px solid var(--primary);
+  border-radius: 3px 3px 3px 3px;
+  flex-shrink: 0;
 }
 
-.brand-mark i {
-  border-radius: 999px;
+.brand-mark::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  background: var(--paper);
+  border-left: 1.5px solid var(--primary);
+  border-bottom: 1.5px solid var(--primary);
+  border-radius: 0 3px 0 3px;
+}
+
+.brand-mark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 5px;
+  top: 12px;
+  height: 1.5px;
   background: var(--primary);
-}
-
-.brand-mark i:nth-child(3),
-.brand-mark i:nth-child(4) {
-  background: var(--text);
+  box-shadow: 0 4px 0 var(--primary);
 }
 
 .app-main {
@@ -111,7 +130,7 @@
 }
 
 .sidebar-nav-item.active {
-  background: #eef3fe;
+  background: var(--primary-tint);
   color: var(--primary);
 }
 
@@ -380,7 +399,7 @@
 
 .file-drop:hover {
   border-color: var(--primary);
-  background: #eef3fe;
+  background: var(--primary-tint);
 }
 
 .file-drop input {
@@ -426,7 +445,7 @@ button:not(:disabled):active {
 button.primary {
   background: var(--primary);
   color: white;
-  box-shadow: 0 8px 20px -8px rgba(47, 111, 237, 0.6);
+  box-shadow: 0 8px 20px -8px rgba(15, 107, 92, 0.55);
 }
 
 button.primary:not(:disabled):hover {
@@ -838,12 +857,12 @@ button.danger {
 
 .quiz-option:not(:disabled):hover {
   border-color: var(--primary);
-  background: #eef3fe;
+  background: var(--primary-tint);
 }
 
 .quiz-option.selected {
   border-color: var(--primary);
-  background: #eef3fe;
+  background: var(--primary-tint);
 }
 
 .quiz-option.correct {
@@ -983,7 +1002,7 @@ button.danger {
 }
 
 .topic-tree-toggle.active {
-  background: #eef3fe;
+  background: var(--primary-tint);
   outline: 1.5px solid var(--primary);
 }
 
@@ -1157,7 +1176,7 @@ button.danger {
 
 .deck-picker-item.active {
   border-color: var(--primary);
-  background: #eef3fe;
+  background: var(--primary-tint);
   color: var(--primary);
 }
 

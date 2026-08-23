@@ -23,9 +23,7 @@ export default function LandingPage() {
     <div className="landing">
       <header className="landing-nav">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <i /><i /><i /><i />
-          </span>
+          <span className="brand-mark" aria-hidden="true" />
           <span className="brand-name">MedFlash</span>
         </div>
         <nav className="landing-links">

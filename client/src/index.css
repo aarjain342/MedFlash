@@ -1,14 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
 :root {
-  --bg: #f3f4f7;
-  --dot: #dcdfe6;
-  --surface: #ffffff;
-  --text: #12141a;
-  --muted: #6b7280;
-  --border: #e6e8ee;
-  --primary: #2f6fed;
-  --primary-dark: #2559c7;
-  --success: #16a34a;
-  --danger: #dc2626;
+  /* "Chart & specimen" palette — a clinical study-atlas feel drawn from lab charts and
+     anatomical plates, not a generic SaaS blue-on-white. Named so a future pass can see
+     the intent, not just the hex. */
+  --paper: #eef0e9; /* pale sage-tinted exam-room white, not the cream/terracotta default */
+  --dot: #dadfd2;
+  --surface: #fdfdfb;
+  --ink: #1c2b28; /* near-black with a green cast, doubles as --text */
+  --text: var(--ink);
+  --muted: #5c6d67;
+  --border: #dbe1d5;
+  --primary: #0f6b5c; /* clinical teal-green — the one dominant accent */
+  --primary-dark: #0b5347;
+  --primary-tint: #e2ede9;
+  --accent-warm: #c1502e; /* rust — used sparingly for due/urgent states */
+  --success: #1b7a3b;
+  --danger: #b3261e;
+
+  /* Two-role type system: an editorial display serif with real character, a clean
+     technical sans for body copy, and a mono utility face for data/labels/timestamps. */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Source Sans 3', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+
+  /* Kept for anything still reading the old token name. */
+  --bg: var(--paper);
+
   color-scheme: light;
 }
 
@@ -18,13 +36,60 @@
 
 body {
   margin: 0;
-  background-color: var(--bg);
-  background-image: radial-gradient(var(--dot) 1.4px, transparent 1.4px);
-  background-size: 22px 22px;
+  background-color: var(--paper);
+  /* Fine crosshatch instead of a dot grid — reads like graph/chart paper rather than a
+     generic dashboard background, and stays quiet enough not to fight the content. */
+  background-image:
+    linear-gradient(var(--dot) 1px, transparent 1px),
+    linear-gradient(90deg, var(--dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-attachment: fixed;
   color: var(--text);
-  font-family: -apple-system, 'Segoe UI', system-ui, Arial, sans-serif;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* Signature motion: one orchestrated staggered reveal on load rather than scattered
+   micro-interactions — apply .stagger-in to a container whose direct children should
+   fade/rise in sequence. */
+@keyframes stagger-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stagger-in > * {
+    animation: stagger-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .stagger-in > *:nth-child(1) { animation-delay: 0.02s; }
+  .stagger-in > *:nth-child(2) { animation-delay: 0.08s; }
+  .stagger-in > *:nth-child(3) { animation-delay: 0.14s; }
+  .stagger-in > *:nth-child(4) { animation-delay: 0.2s; }
+  .stagger-in > *:nth-child(5) { animation-delay: 0.26s; }
+}
+
+/* Utility face for eyebrows, tags, and chart-like data — small, uppercase, tracked out. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }

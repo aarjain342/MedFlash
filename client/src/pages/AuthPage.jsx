@@ -42,9 +42,7 @@ export default function AuthPage({ mode }) {
   return (
     <div className="auth-page">
       <Link to="/" className="brand auth-brand">
-        <span className="brand-mark" aria-hidden="true">
-          <i /><i /><i /><i />
-        </span>
+        <span className="brand-mark" aria-hidden="true" />
         <span className="brand-name">MedFlash</span>
       </Link>
 

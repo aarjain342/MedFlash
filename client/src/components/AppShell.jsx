@@ -43,9 +43,7 @@ export default function AppShell({ activeView, onNavigate, user, guestMode, onSi
     <div className="app-shell">
       <nav className="app-sidebar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <i /><i /><i /><i />
-          </span>
+          <span className="brand-mark" aria-hidden="true" />
           <span className="brand-name">MedFlash</span>
         </div>
 
@@ -76,7 +74,7 @@ export default function AppShell({ activeView, onNavigate, user, guestMode, onSi
         </div>
       </nav>
 
-      <main className="app-shell-content">{children}</main>
+      <main className="app-shell-content stagger-in">{children}</main>
     </div>
   );
 }
