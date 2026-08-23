@@ -16,6 +16,8 @@ function DifficultyDots({ tier }) {
 export default function QuizView({ deck, onExit }) {
   const [phase, setPhase] = useState('loading'); // loading | generating | ready | complete | error
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+  const [liveTopics, setLiveTopics] = useState([]); // [{ name, questions, error }] — grows as SSE events arrive
+  const [expandedTopic, setExpandedTopic] = useState(null);
   const [error, setError] = useState('');
   const [quizState, setQuizState] = useState(null);
   const [current, setCurrent] = useState(null); // { topicName, tier, presented }
@@ -49,6 +51,7 @@ export default function QuizView({ deck, onExit }) {
   async function generate() {
     setPhase('generating');
     setError('');
+    setLiveTopics([]);
     const topicResults = new Map();
     let total = 0;
 
@@ -68,8 +71,10 @@ export default function QuizView({ deck, onExit }) {
         } else if (type === 'topic') {
           topicResults.set(data.topic, data.questions);
           setGenProgress((p) => ({ done: p.done + 1, total }));
+          setLiveTopics((t) => [...t, { name: data.topic, questions: data.questions }]);
         } else if (type === 'topic-error') {
           setGenProgress((p) => ({ done: p.done + 1, total }));
+          setLiveTopics((t) => [...t, { name: data.topic, error: data.error }]);
         } else if (type === 'fatal-error') {
           throw new Error(data.error);
         }
@@ -115,41 +120,87 @@ export default function QuizView({ deck, onExit }) {
 
   const topicSummaries = quizState ? getTopicSummaries(quizState) : [];
 
+  if (phase === 'loading') {
+    return (
+      <div className="quiz-centered">
+        <div className="panel quiz-panel-narrow">
+          <span className="spinner" aria-hidden="true" />
+          <p className="muted">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'generating') {
+    return (
+      <div className="quiz-centered">
+        <div className="panel quiz-generating-panel">
+          <h2>Building your USMLE-style quiz</h2>
+          <p className="muted">
+            Generating progressively harder questions for each topic in "{deck.name}"…
+          </p>
+          {genProgress.total > 0 && (
+            <div className="progress">
+              <div className="progress-bar">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${(genProgress.done / genProgress.total) * 100}%` }}
+                />
+              </div>
+              <p className="muted small">
+                Topic {genProgress.done} / {genProgress.total}
+              </p>
+            </div>
+          )}
+
+          {liveTopics.length > 0 && (
+            <ul className="live-topic-feed">
+              {[...liveTopics].reverse().map((t) => (
+                <li key={t.name} className={`live-topic-item ${t.error ? 'errored' : ''}`}>
+                  <button
+                    className="live-topic-toggle"
+                    disabled={!!t.error}
+                    onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
+                  >
+                    <span>{t.error ? '⚠ ' : '✓ '}{t.name}</span>
+                    <span className="muted small">
+                      {t.error ? 'failed' : `${t.questions.length} questions`}
+                    </span>
+                  </button>
+                  {expandedTopic === t.name && !t.error && (
+                    <ul className="live-topic-questions">
+                      {t.questions.map((q, i) => (
+                        <li key={i}>
+                          <DifficultyDots tier={q.difficulty} />
+                          <span className="muted small">{q.stem}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'error') {
+    return (
+      <div className="quiz-centered">
+        <div className="panel quiz-panel-narrow">
+          <p className="error">{error}</p>
+          <button className="primary" onClick={generate}>Try again</button>
+          <button className="link" onClick={onExit}>Back to decks</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="quiz-layout">
       <div className="panel quiz-panel">
-        {phase === 'loading' && <p className="muted">Loading…</p>}
-
-        {phase === 'generating' && (
-          <div>
-            <h2>Building your USMLE-style quiz</h2>
-            <p className="muted">
-              Generating progressively harder questions for each topic in "{deck.name}"…
-            </p>
-            {genProgress.total > 0 && (
-              <div className="progress">
-                <div className="progress-bar">
-                  <div
-                    className="progress-bar-fill"
-                    style={{ width: `${(genProgress.done / genProgress.total) * 100}%` }}
-                  />
-                </div>
-                <p className="muted small">
-                  Topic {genProgress.done} / {genProgress.total}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div>
-            <p className="error">{error}</p>
-            <button className="primary" onClick={generate}>Try again</button>
-            <button className="link" onClick={onExit}>Back to decks</button>
-          </div>
-        )}
-
         {phase === 'ready' && current && (
           <div>
             <div className="quiz-question-header">
