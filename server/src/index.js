@@ -6,9 +6,10 @@ import { getProviderChain } from './providers/index.js';
 import { openPdf, extractPage } from './pdf.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
-import { rateLimit, exemptCount, limitsSummary } from './rateLimit.js';
+import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './rateLimit.js';
 import { generateWithFallback, parseJsonArray } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
+import { buildChatPrompt, sanitizeHistory } from './chat.js';
 
 const app = express();
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
@@ -81,7 +82,7 @@ Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped l
 
 // rateLimit sits after requireAuth (so it can key on the verified user) but before
 // multer, so a rejected request never buffers a 40MB upload into memory.
-app.post('/api/generate-stream', requireAuth, rateLimit, upload.single('pdf'), async (req, res) => {
+app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
 
   let providerChain;
@@ -138,7 +139,7 @@ app.post('/api/generate-stream', requireAuth, rateLimit, upload.single('pdf'), a
   }
 });
 
-app.post('/api/generate-quiz', requireAuth, rateLimit, async (req, res) => {
+app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, async (req, res) => {
   const cards = req.body?.cards;
   if (!Array.isArray(cards) || cards.length === 0) {
     return res.status(400).json({ error: 'No deck cards provided' });
@@ -194,6 +195,29 @@ app.post('/api/generate-quiz', requireAuth, rateLimit, async (req, res) => {
   } finally {
     stopHeartbeat();
     res.end();
+  }
+});
+
+app.post('/api/chat', requireAuth, chatLimiter.middleware, async (req, res) => {
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  if (!message) return res.status(400).json({ error: 'No message provided' });
+
+  let providerChain;
+  try {
+    providerChain = getProviderChain();
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'No LLM provider configured' });
+  }
+
+  const history = sanitizeHistory(req.body?.history);
+
+  try {
+    const reply = await generateWithFallback(providerChain, {
+      buildPrompt: () => buildChatPrompt(message, history),
+    });
+    res.json({ reply: reply.trim() });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Chat request failed' });
   }
 });
 

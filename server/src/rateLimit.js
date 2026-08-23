@@ -12,11 +12,9 @@
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-const HOURLY_LIMIT = Number(process.env.RATE_LIMIT_PER_HOUR) || 12;
-const DAILY_LIMIT = Number(process.env.RATE_LIMIT_PER_DAY) || 40;
-
-// Emails that bypass limits entirely. Set via env (comma-separated) rather than hardcoded,
-// because this repo is public and committing personal addresses invites scraping/spam.
+// Emails that bypass limits entirely, across every limiter. Set via env (comma-separated)
+// rather than hardcoded, because this repo is public and committing personal addresses
+// invites scraping/spam.
 const EXEMPT_EMAILS = new Set(
   (process.env.RATE_LIMIT_EXEMPT_EMAILS || '')
     .split(',')
@@ -30,61 +28,82 @@ export function exemptCount() {
   return EXEMPT_EMAILS.size;
 }
 
-export function limitsSummary() {
-  return { perHour: HOURLY_LIMIT, perDay: DAILY_LIMIT };
-}
-
-/** @type {Map<string, number[]>} key -> ascending request timestamps */
-const hits = new Map();
-
-// Without this the map grows forever as new users appear — an unbounded-memory leak is
-// its own denial-of-service vector.
-const CLEANUP_INTERVAL_MS = HOUR_MS;
-setInterval(() => {
-  const cutoff = Date.now() - DAY_MS;
-  for (const [key, times] of hits) {
-    const kept = times.filter((t) => t > cutoff);
-    if (kept.length === 0) hits.delete(key);
-    else hits.set(key, kept);
-  }
-}, CLEANUP_INTERVAL_MS).unref?.();
-
 function describeWindow(ms) {
   return ms >= DAY_MS ? 'today' : 'this hour';
 }
 
-export function rateLimit(req, res, next) {
-  const email = (req.user?.email || '').toLowerCase();
-  if (email && EXEMPT_EMAILS.has(email)) return next();
+// Creates an independent rate-limit middleware with its own counters and limits — e.g.
+// flashcard/quiz generation and chat messages shouldn't share one budget, since a few
+// chat questions shouldn't burn through the same quota as a full deck generation.
+export function createRateLimiter({ name, hourlyLimit, dailyLimit }) {
+  /** @type {Map<string, number[]>} key -> ascending request timestamps */
+  const hits = new Map();
 
-  const key = req.user?.id || `ip:${req.ip}`;
-  const now = Date.now();
-  const times = (hits.get(key) || []).filter((t) => t > now - DAY_MS);
+  // Without this the map grows forever as new users appear — an unbounded-memory leak is
+  // its own denial-of-service vector.
+  setInterval(() => {
+    const cutoff = Date.now() - DAY_MS;
+    for (const [key, times] of hits) {
+      const kept = times.filter((t) => t > cutoff);
+      if (kept.length === 0) hits.delete(key);
+      else hits.set(key, kept);
+    }
+  }, HOUR_MS).unref?.();
 
-  const inHour = times.filter((t) => t > now - HOUR_MS).length;
-  const overDaily = times.length >= DAILY_LIMIT;
-  const overHourly = inHour >= HOURLY_LIMIT;
+  function middleware(req, res, next) {
+    const email = (req.user?.email || '').toLowerCase();
+    if (email && EXEMPT_EMAILS.has(email)) return next();
 
-  if (overDaily || overHourly) {
-    const windowMs = overDaily ? DAY_MS : HOUR_MS;
-    const relevant = overDaily ? times : times.filter((t) => t > now - HOUR_MS);
-    const oldest = relevant[0];
-    const retryAfterSec = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
-    const limit = overDaily ? DAILY_LIMIT : HOURLY_LIMIT;
+    const key = req.user?.id || `ip:${req.ip}`;
+    const now = Date.now();
+    const times = (hits.get(key) || []).filter((t) => t > now - DAY_MS);
 
-    hits.set(key, times); // persist the pruned list even when rejecting
-    res.set('Retry-After', String(retryAfterSec));
-    return res.status(429).json({
-      error: `You've hit the limit of ${limit} generations ${describeWindow(windowMs)}. Try again in about ${
-        retryAfterSec >= 3600 ? `${Math.ceil(retryAfterSec / 3600)}h` : `${Math.ceil(retryAfterSec / 60)} min`
-      }.`,
-    });
+    const inHour = times.filter((t) => t > now - HOUR_MS).length;
+    const overDaily = times.length >= dailyLimit;
+    const overHourly = inHour >= hourlyLimit;
+
+    if (overDaily || overHourly) {
+      const windowMs = overDaily ? DAY_MS : HOUR_MS;
+      const relevant = overDaily ? times : times.filter((t) => t > now - HOUR_MS);
+      const oldest = relevant[0];
+      const retryAfterSec = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
+      const limit = overDaily ? dailyLimit : hourlyLimit;
+
+      hits.set(key, times); // persist the pruned list even when rejecting
+      res.set('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        error: `You've hit the limit of ${limit} ${name} ${describeWindow(windowMs)}. Try again in about ${
+          retryAfterSec >= 3600 ? `${Math.ceil(retryAfterSec / 3600)}h` : `${Math.ceil(retryAfterSec / 60)} min`
+        }.`,
+      });
+    }
+
+    times.push(now);
+    hits.set(key, times);
+
+    res.set('X-RateLimit-Limit-Hour', String(hourlyLimit));
+    res.set('X-RateLimit-Remaining-Hour', String(Math.max(0, hourlyLimit - inHour - 1)));
+    next();
   }
 
-  times.push(now);
-  hits.set(key, times);
+  return { middleware, hourlyLimit, dailyLimit };
+}
 
-  res.set('X-RateLimit-Limit-Hour', String(HOURLY_LIMIT));
-  res.set('X-RateLimit-Remaining-Hour', String(Math.max(0, HOURLY_LIMIT - inHour - 1)));
-  next();
+export const generationLimiter = createRateLimiter({
+  name: 'generations',
+  hourlyLimit: Number(process.env.RATE_LIMIT_PER_HOUR) || 12,
+  dailyLimit: Number(process.env.RATE_LIMIT_PER_DAY) || 40,
+});
+
+export const chatLimiter = createRateLimiter({
+  name: 'chat messages',
+  hourlyLimit: Number(process.env.RATE_LIMIT_CHAT_PER_HOUR) || 30,
+  dailyLimit: Number(process.env.RATE_LIMIT_CHAT_PER_DAY) || 150,
+});
+
+export function limitsSummary() {
+  return {
+    generation: { perHour: generationLimiter.hourlyLimit, perDay: generationLimiter.dailyLimit },
+    chat: { perHour: chatLimiter.hourlyLimit, perDay: chatLimiter.dailyLimit },
+  };
 }

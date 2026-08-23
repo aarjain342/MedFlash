@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { generateQuizStream } from '../lib/quizApi';
-import { initQuizState, getCurrentQuestion, submitAnswer, getTopicSummaries } from '../lib/quizEngine';
+import {
+  initQuizState,
+  getCurrentQuestion,
+  submitAnswer,
+  getTopicSummaries,
+  getOverallStats,
+} from '../lib/quizEngine';
 import { loadQuizState, saveQuizState } from '../lib/db';
 
 function DifficultyDots({ tier }) {
@@ -13,11 +19,13 @@ function DifficultyDots({ tier }) {
   );
 }
 
-export default function QuizView({ deck, onExit }) {
+export default function QuizView({ deck, onExit, onStudy }) {
   const [phase, setPhase] = useState('loading'); // loading | generating | ready | complete | error
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
   const [liveTopics, setLiveTopics] = useState([]); // [{ name, questions, error }] — grows as SSE events arrive
   const [expandedTopic, setExpandedTopic] = useState(null);
+  const [flashcardsOpen, setFlashcardsOpen] = useState(true);
+  const [questionsOpen, setQuestionsOpen] = useState(true);
   const [error, setError] = useState('');
   const [quizState, setQuizState] = useState(null);
   const [current, setCurrent] = useState(null); // { topicName, tier, presented }
@@ -119,6 +127,7 @@ export default function QuizView({ deck, onExit }) {
   }
 
   const topicSummaries = quizState ? getTopicSummaries(quizState) : [];
+  const stats = quizState ? getOverallStats(quizState) : { correct: 0, wrong: 0, attempted: 0, accuracy: null };
 
   if (phase === 'loading') {
     return (
@@ -200,6 +209,80 @@ export default function QuizView({ deck, onExit }) {
 
   return (
     <div className="quiz-layout">
+      <div className="panel quiz-sidebar">
+        <div className="quiz-stats-bar">
+          <div className="quiz-stat">
+            <span className="quiz-stat-value correct">{stats.correct}</span>
+            <span className="muted small">Correct</span>
+          </div>
+          <div className="quiz-stat">
+            <span className="quiz-stat-value wrong">{stats.wrong}</span>
+            <span className="muted small">Wrong</span>
+          </div>
+          <div className="quiz-stat">
+            <span className="quiz-stat-value">{stats.accuracy == null ? '—' : `${stats.accuracy}%`}</span>
+            <span className="muted small">Accuracy</span>
+          </div>
+        </div>
+
+        <div className="sidebar-section">
+          <button className="sidebar-section-header" onClick={() => setFlashcardsOpen((o) => !o)}>
+            <span>Flashcards</span>
+            <span aria-hidden="true">{flashcardsOpen ? '−' : '+'}</span>
+          </button>
+          {flashcardsOpen && (
+            <div className="sidebar-section-body">
+              <p className="muted small">{deck.cards.length} cards in "{deck.name}"</p>
+              <button className="ghost small" onClick={() => onStudy?.(deck)}>Study flashcards</button>
+            </div>
+          )}
+        </div>
+
+        <div className="sidebar-section">
+          <button className="sidebar-section-header" onClick={() => setQuestionsOpen((o) => !o)}>
+            <span>Questions</span>
+            <span aria-hidden="true">{questionsOpen ? '−' : '+'}</span>
+          </button>
+          {questionsOpen && (
+            <ul className="topic-tree">
+              {topicSummaries.map((t) => (
+                <li key={t.name} className="topic-tree-item">
+                  <button
+                    className={`topic-tree-toggle ${t.mastered ? 'mastered' : ''} ${
+                      current?.topicName === t.name ? 'active' : ''
+                    }`}
+                    onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
+                  >
+                    <span className="topic-tree-name" title={t.name}>
+                      {t.mastered ? '✓ ' : ''}
+                      {t.name}
+                    </span>
+                    <DifficultyDots tier={t.tier} />
+                  </button>
+
+                  {expandedTopic === t.name && (
+                    <ul className="question-tree-list">
+                      {t.questions.map((q) => {
+                        const isActive = current?.topicName === t.name && current.index === q.index;
+                        const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
+                        return (
+                          <li key={q.index} className={`question-tree-item ${status} ${isActive ? 'active' : ''}`}>
+                            <span className={`question-status-icon ${status}`} aria-hidden="true">
+                              {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '•'}
+                            </span>
+                            <span className="question-tree-stem">{q.stem}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
       <div className="panel quiz-panel">
         {phase === 'ready' && current && (
           <div>
@@ -261,29 +344,6 @@ export default function QuizView({ deck, onExit }) {
           </div>
         )}
       </div>
-
-      {topicSummaries.length > 0 && (
-        <div className="panel quiz-sidebar">
-          <h3>Topics</h3>
-          <ul className="topic-mastery-list">
-            {topicSummaries.map((t) => (
-              <li
-                key={t.name}
-                className={`topic-mastery-item ${t.mastered ? 'mastered' : ''} ${
-                  current?.topicName === t.name ? 'active' : ''
-                }`}
-              >
-                <span className="topic-mastery-name" title={t.name}>
-                  {t.mastered ? '✓ ' : ''}
-                  {t.name}
-                </span>
-                {!t.mastered && <DifficultyDots tier={t.tier} />}
-                {t.struggling && !t.mastered && <span className="struggling-badge">practicing</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

@@ -34,6 +34,9 @@ export function initQuizState(topicsWithQuestions) {
       name,
       questions: sorted,
       correctFlags: sorted.map(() => false),
+      // Per-question attempt history — this is what backs the question-bank sidebar and
+      // the right/wrong stats, on top of correctFlags which only drives mastery/picking.
+      stats: sorted.map(() => ({ attempts: 0, correct: 0, wrong: 0 })),
       qCursor: 0, // index into `questions` of the one to present next
       mastered: false,
       attempts: 0,
@@ -106,6 +109,13 @@ export function submitAnswer(state, topicName, index, presented, selectedIndex) 
   const correct = selectedIndex === presented.correctIndex;
   topic.attempts += 1;
 
+  // Older saved quiz state (from before stats existed) won't have this — backfill lazily.
+  if (!topic.stats) topic.stats = topic.questions.map(() => ({ attempts: 0, correct: 0, wrong: 0 }));
+  const qStats = topic.stats[index];
+  qStats.attempts += 1;
+  if (correct) qStats.correct += 1;
+  else qStats.wrong += 1;
+
   if (correct) {
     topic.wrongInARow = 0;
     topic.correctFlags[index] = true;
@@ -120,14 +130,61 @@ export function submitAnswer(state, topicName, index, presented, selectedIndex) 
   return { correct, mastered: topic.mastered, topicName };
 }
 
+// Full question-bank view for the sidebar: every topic with every one of its questions,
+// each tagged with its current status (correct / wrong-only-so-far / unattempted).
 export function getTopicSummaries(state) {
   return Object.values(state.topics).map((t) => {
     const nextQuestion = t.questions[t.qCursor] || t.questions[t.questions.length - 1];
+    const stats = t.stats || t.questions.map(() => ({ attempts: 0, correct: 0, wrong: 0 }));
     return {
       name: t.name,
       tier: nextQuestion?.difficulty || 1,
       mastered: t.mastered,
       struggling: t.wrongInARow >= 2,
+      questions: t.questions.map((q, i) => ({
+        index: i,
+        stem: q.stem,
+        difficulty: q.difficulty,
+        correct: t.correctFlags[i],
+        attempts: stats[i]?.attempts || 0,
+        wrong: stats[i]?.wrong || 0,
+      })),
     };
   });
+}
+
+// Aggregate right/wrong counts across the whole session, for the stats bar.
+export function getOverallStats(state) {
+  return getStatsAcross([state]);
+}
+
+// Same shape, but summed across every quiz state the user has (one per deck they've
+// quizzed on) — this is what the app-wide Stats page shows, not just the active session.
+export function getStatsAcross(states) {
+  let correct = 0;
+  let wrong = 0;
+  let topicsTotal = 0;
+  let topicsMastered = 0;
+
+  for (const state of states) {
+    if (!state?.topics) continue;
+    for (const topic of Object.values(state.topics)) {
+      topicsTotal += 1;
+      if (topic.mastered) topicsMastered += 1;
+      for (const s of topic.stats || []) {
+        correct += s.correct;
+        wrong += s.wrong;
+      }
+    }
+  }
+
+  const attempted = correct + wrong;
+  return {
+    correct,
+    wrong,
+    attempted,
+    accuracy: attempted > 0 ? Math.round((correct / attempted) * 100) : null,
+    topicsTotal,
+    topicsMastered,
+  };
 }

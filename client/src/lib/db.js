@@ -90,6 +90,16 @@ async function saveQuizStateLocal(deckId, state) {
   );
 }
 
+async function loadAllQuizStatesLocal() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUIZZES_STORE, 'readonly');
+    const req = tx.objectStore(QUIZZES_STORE).getAll();
+    req.onsuccess = () => resolve((req.result || []).map((r) => r.state));
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // --- Supabase (signed-in) ---
 
 function rowToDeck(row) {
@@ -137,6 +147,12 @@ async function saveQuizStateRemote(userId, deckId, state) {
   if (error) throw error;
 }
 
+async function loadAllQuizStatesRemote(userId) {
+  const { data, error } = await supabase.from('quizzes').select('state').eq('user_id', userId);
+  if (error) throw error;
+  return data.map((r) => r.state);
+}
+
 // --- Public API: dispatches to remote or local depending on sign-in state ---
 
 export async function loadDecks() {
@@ -162,4 +178,10 @@ export async function loadQuizState(deckId) {
 export async function saveQuizState(deckId, state) {
   const userId = await getUserId();
   return userId ? saveQuizStateRemote(userId, deckId, state) : saveQuizStateLocal(deckId, state);
+}
+
+// Every quiz state the user has, across all their decks — used by the app-wide Stats page.
+export async function loadAllQuizStates() {
+  const userId = await getUserId();
+  return userId ? loadAllQuizStatesRemote(userId) : loadAllQuizStatesLocal();
 }
