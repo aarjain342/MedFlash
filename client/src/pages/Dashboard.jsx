@@ -35,6 +35,21 @@ export default function Dashboard() {
     setActiveView(view);
   }
 
+  // Study/Quiz are opened from several places (Decks grid, Flashcards/Questions pickers,
+  // QuizView's own "Study flashcards" link) — always routing through here keeps the
+  // sidebar's active section in sync with whichever one is actually on screen.
+  function handleStudy(deck) {
+    setActiveView('flashcards');
+    setQuizzingDeck(null);
+    setStudyingDeck(deck);
+  }
+
+  function handleQuiz(deck) {
+    setActiveView('questions');
+    setStudyingDeck(null);
+    setQuizzingDeck(deck);
+  }
+
   async function handleDeckCreated(deck) {
     setDecks(await upsertDeck(deck));
   }
@@ -78,17 +93,14 @@ export default function Dashboard() {
         <QuizView
           deck={quizzingDeck}
           onExit={() => setQuizzingDeck(null)}
-          onStudy={(deck) => {
-            setQuizzingDeck(null);
-            setStudyingDeck(deck);
-          }}
+          onStudy={handleStudy}
         />
       </ErrorBoundary>
     );
   } else if (activeView === 'flashcards') {
-    content = <FlashcardsView decks={decks} onStudy={setStudyingDeck} />;
+    content = <FlashcardsView decks={decks} onStudy={handleStudy} onQuiz={handleQuiz} onDelete={handleDeleteDeck} busyDeckId={busyDeckId} />;
   } else if (activeView === 'questions') {
-    content = <QuestionsView decks={decks} onQuiz={setQuizzingDeck} />;
+    content = <QuestionsView decks={decks} onQuiz={handleQuiz} />;
   } else if (activeView === 'settings') {
     content = <SettingsView user={user} guestMode={guestMode} onSignOut={signOut} />;
   } else if (activeView === 'decks') {
@@ -98,8 +110,8 @@ export default function Dashboard() {
         decksLoading={decksLoading}
         busyDeckId={busyDeckId}
         onDeckCreated={handleDeckCreated}
-        onStudy={setStudyingDeck}
-        onQuiz={setQuizzingDeck}
+        onStudy={handleStudy}
+        onQuiz={handleQuiz}
         onDelete={handleDeleteDeck}
       />
     );

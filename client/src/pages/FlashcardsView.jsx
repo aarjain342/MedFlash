@@ -1,8 +1,23 @@
 import { useState } from 'react';
+import { exportDeckToAnki } from '../lib/ankiExport';
 
-export default function FlashcardsView({ decks, onStudy }) {
+export default function FlashcardsView({ decks, onStudy, onQuiz, onDelete, busyDeckId }) {
   const [selectedId, setSelectedId] = useState(decks[0]?.id ?? null);
+  const [exportingId, setExportingId] = useState(null);
+  const [exportError, setExportError] = useState('');
   const selected = decks.find((d) => d.id === selectedId);
+
+  async function handleExport(deck) {
+    setExportingId(deck.id);
+    setExportError('');
+    try {
+      await exportDeckToAnki(deck);
+    } catch (err) {
+      setExportError(`Export failed: ${err.message}`);
+    } finally {
+      setExportingId(null);
+    }
+  }
 
   return (
     <div className="panel">
@@ -24,11 +39,42 @@ export default function FlashcardsView({ decks, onStudy }) {
             ))}
           </div>
 
+          {exportError && <p className="error">{exportError}</p>}
+
           {selected && (
             <div className="flashcard-browser">
               <div className="flashcard-browser-header">
                 <h3>{selected.name}</h3>
-                <button className="primary" onClick={() => onStudy(selected)}>Study this deck</button>
+                <div className="flashcard-browser-actions">
+                  <button
+                    className="primary"
+                    disabled={busyDeckId === selected.id}
+                    onClick={() => onStudy(selected)}
+                  >
+                    Study this deck
+                  </button>
+                  <button
+                    className="ghost"
+                    disabled={busyDeckId === selected.id}
+                    onClick={() => onQuiz?.(selected)}
+                  >
+                    USMLE Quiz
+                  </button>
+                  <button
+                    className="ghost"
+                    disabled={busyDeckId === selected.id || exportingId === selected.id}
+                    onClick={() => handleExport(selected)}
+                  >
+                    {exportingId === selected.id ? 'Exporting…' : 'Export to Anki'}
+                  </button>
+                  <button
+                    className="ghost"
+                    disabled={busyDeckId === selected.id}
+                    onClick={() => onDelete?.(selected.id)}
+                  >
+                    {busyDeckId === selected.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </div>
               <div className="flashcard-table">
                 {selected.cards.map((c) => (
