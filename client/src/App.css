@@ -1599,9 +1599,12 @@ button.danger {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Fixed total height so the panel never grows/shifts as messages come in — the messages
-     list scrolls internally instead. */
-  height: 560px;
+  /* Matches the left column's height instead of a fixed number — was 560px, which left a
+     gap once the left column grew taller (streak panel added below stats) or stretched
+     the page when it was shorter. Messages still scroll internally (.chat-messages below)
+     so growing to fill this doesn't mean the panel itself grows as messages come in. */
+  align-self: stretch;
+  min-height: 420px;
 }
 
 .home-chat-panel-header {
