@@ -54,7 +54,8 @@ export default function ChatPanel() {
         ))}
         {sending && (
           <div className="chat-bubble assistant chat-thinking">
-            <span className="spinner" aria-hidden="true" />
+            <span className="spinner spinner-tiny" aria-hidden="true" />
+            <span>Thinking…</span>
           </div>
         )}
       </div>
