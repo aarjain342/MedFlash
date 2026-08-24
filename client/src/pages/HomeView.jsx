@@ -2,15 +2,30 @@ import { useMemo, useState } from 'react';
 import StatsSummary from '../components/StatsSummary';
 import ChatPanel from '../components/ChatPanel';
 import { isDue } from '../lib/leitner';
-import { getStreak } from '../lib/streak';
+import { getStreak, getWeekView } from '../lib/streak';
 
-function StreakBadge() {
+function StreakCalendar() {
   const streak = getStreak();
-  if (streak === 0) return null;
+  const week = useMemo(() => getWeekView(), []);
+
   return (
-    <div className="streak-badge" title={`${streak}-day study streak`}>
-      <span aria-hidden="true">🔥</span>
-      <span>{streak}-day streak</span>
+    <div className="streak-calendar" title={streak > 0 ? `${streak}-day study streak` : 'No active streak yet'}>
+      <div className="streak-calendar-count">
+        <span aria-hidden="true">🔥</span>
+        <span>{streak}</span>
+        <span className="muted small">day{streak === 1 ? '' : 's'}</span>
+      </div>
+      <div className="streak-calendar-days">
+        {week.map((d) => (
+          <div
+            key={d.date}
+            className={`streak-day ${d.active ? 'active' : ''} ${d.isToday ? 'today' : ''}`}
+            title={d.date}
+          >
+            {d.label}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -92,6 +107,8 @@ function RandomCardWidget({ decks }) {
 }
 
 export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
+  const [chatExpanded, setChatExpanded] = useState(false);
+
   return (
     <div className="home-grid">
       <div className="home-grid-main">
@@ -101,7 +118,7 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
               <h1>Welcome back{userLabel ? `, ${userLabel}` : ''}</h1>
               <p className="muted">Here's how your studying is going, and an assistant if you need one.</p>
             </div>
-            <StreakBadge />
+            <StreakCalendar />
           </div>
           <div className="home-quick-actions">
             <button className="primary" onClick={() => onNavigate('decks')}>Generate flashcards</button>
@@ -112,9 +129,17 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
         <StatsSummary />
       </div>
 
-      <div className="panel home-chat-panel">
-        <h2>Ask MedFlash</h2>
-        <p className="muted">A study assistant for quick medical questions — not a substitute for real coursework.</p>
+      {chatExpanded && <div className="chat-overlay-backdrop" onClick={() => setChatExpanded(false)} />}
+      <div className={`panel home-chat-panel ${chatExpanded ? 'expanded' : ''}`}>
+        <div className="home-chat-panel-header">
+          <div>
+            <h2>Ask MedFlash</h2>
+            <p className="muted">A study assistant for quick medical questions — not a substitute for real coursework.</p>
+          </div>
+          <button className="ghost small chat-expand-toggle" onClick={() => setChatExpanded((e) => !e)}>
+            {chatExpanded ? 'Back' : 'Expand'}
+          </button>
+        </div>
         <ChatPanel />
       </div>
 
