@@ -244,6 +244,18 @@
   }
 }
 
+.stats-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stats-panel-header h2 {
+  margin-bottom: 0;
+}
+
 .stats-grid {
   display: flex;
   gap: 32px;

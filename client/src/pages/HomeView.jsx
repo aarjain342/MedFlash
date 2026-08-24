@@ -2,33 +2,6 @@ import { useMemo, useState } from 'react';
 import StatsSummary from '../components/StatsSummary';
 import ChatPanel from '../components/ChatPanel';
 import { isDue } from '../lib/leitner';
-import { getStreak, getWeekView } from '../lib/streak';
-
-function StreakCalendar() {
-  const streak = getStreak();
-  const week = useMemo(() => getWeekView(), []);
-
-  return (
-    <div className="streak-calendar" title={streak > 0 ? `${streak}-day study streak` : 'No active streak yet'}>
-      <div className="streak-calendar-count">
-        <span aria-hidden="true">🔥</span>
-        <span>{streak}</span>
-        <span className="muted small">day{streak === 1 ? '' : 's'}</span>
-      </div>
-      <div className="streak-calendar-days">
-        {week.map((d) => (
-          <div
-            key={d.date}
-            className={`streak-day ${d.active ? 'active' : ''} ${d.isToday ? 'today' : ''}`}
-            title={d.date}
-          >
-            {d.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function DueTodayWidget({ decks, onStudy }) {
   const loadedDecks = decks.filter((d) => d.cards);
@@ -113,13 +86,8 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
     <div className="home-grid">
       <div className="home-grid-main">
         <div className="panel home-greeting">
-          <div className="home-greeting-top">
-            <div>
-              <h1>Welcome back{userLabel ? `, ${userLabel}` : ''}</h1>
-              <p className="muted">Here's how your studying is going, and an assistant if you need one.</p>
-            </div>
-            <StreakCalendar />
-          </div>
+          <h1>Welcome back{userLabel ? `, ${userLabel}` : ''}</h1>
+          <p className="muted">Here's how your studying is going, and an assistant if you need one.</p>
           <div className="home-quick-actions">
             <button className="primary" onClick={() => onNavigate('decks')}>Generate flashcards</button>
             <button className="ghost" onClick={() => onNavigate('questions')}>View questions</button>
