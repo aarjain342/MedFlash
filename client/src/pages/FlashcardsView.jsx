@@ -39,7 +39,7 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                 onClick={() => setSelectedId(d.id)}
               >
                 {d.name}
-                <span className="muted small">{d.cards.length} cards</span>
+                <span className="muted small">{d.cards ? `${d.cards.length} cards` : 'Loading…'}</span>
               </button>
             ))}
           </div>
@@ -53,21 +53,21 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                 <div className="flashcard-browser-actions">
                   <button
                     className="primary"
-                    disabled={busyDeckId === selected.id}
+                    disabled={busyDeckId === selected.id || !selected.cards}
                     onClick={() => onStudy(selected)}
                   >
                     Study this deck
                   </button>
                   <button
                     className="ghost"
-                    disabled={busyDeckId === selected.id}
+                    disabled={busyDeckId === selected.id || !selected.cards}
                     onClick={() => onQuiz?.(selected)}
                   >
                     USMLE Quiz
                   </button>
                   <button
                     className="ghost"
-                    disabled={busyDeckId === selected.id || exportingId === selected.id}
+                    disabled={busyDeckId === selected.id || !selected.cards || exportingId === selected.id}
                     onClick={() => handleExport(selected)}
                   >
                     {exportingId === selected.id ? 'Exporting…' : 'Export to Anki'}
@@ -81,15 +81,22 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                   </button>
                 </div>
               </div>
-              <div className="flashcard-table">
-                {selected.cards.map((c) => (
-                  <div key={c.id} className="flashcard-row">
-                    {c.topic && <span className="flashcard-row-topic">{c.topic}</span>}
-                    <p className="flashcard-row-q">{c.question}</p>
-                    <p className="flashcard-row-a muted">{c.answer}</p>
-                  </div>
-                ))}
-              </div>
+              {selected.cards ? (
+                <div className="flashcard-table">
+                  {selected.cards.map((c) => (
+                    <div key={c.id} className="flashcard-row">
+                      {c.topic && <span className="flashcard-row-topic">{c.topic}</span>}
+                      <p className="flashcard-row-q">{c.question}</p>
+                      <p className="flashcard-row-a muted">{c.answer}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="decks-loading">
+                  <span className="spinner" aria-hidden="true" />
+                  <span className="muted">Loading cards…</span>
+                </div>
+              )}
             </div>
           )}
         </>

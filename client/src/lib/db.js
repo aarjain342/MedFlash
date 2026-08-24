@@ -112,15 +112,34 @@ function isRetryableSaveError(error) {
   return error?.code === '57014' || /statement timeout/i.test(error?.message || '');
 }
 
+// Fast path for the initial list paint: no `cards` column at all, so this stays tiny (a
+// few KB) and quick regardless of how much card/image data the account has accumulated.
+// `cards: null` is a sentinel the UI reads as "still loading detail" rather than "empty" —
+// loadDecksRemote() below fills it in shortly after, in the background.
+async function loadDecksMetaRemote(userId) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from('decks')
+      .select('id, name, source_file, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) return data.map((row) => ({ ...rowToDeck(row), cards: null }));
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
+}
+
 // This SELECT pulls the full cards column (including every embedded slide image) for
-// EVERY deck the user owns, just to build the list view — for an account with several
-// large decks that can be tens of MB transferred fresh on every sign-in. That made this
-// query genuinely prone to timing out, and since it fires on every fresh Dashboard mount,
-// a failed fetch here used to be indistinguishable from "you have no decks" (see
-// loadDecks() in Dashboard.jsx, which had no error handling). Retrying softens the
-// transient case; Dashboard now also surfaces a real error instead of a silent empty
-// list. The real fix is not re-fetching full card/image payloads just to list decks —
-// tracked in HANDOFF.md, needs a schema change to do properly.
+// EVERY deck the user owns — for an account with several large decks that's tens of MB.
+// It used to be the ONLY way decks were loaded, which made the whole app feel like it
+// hung on every sign-in and was genuinely prone to timing out. Now it only runs in the
+// background after loadDecksMetaRemote() has already gotten the list on screen — see
+// fetchDecks() in Dashboard.jsx. The real fix is not needing this at all for the list
+// view (only for actually studying/quizzing/exporting a deck) — tracked in HANDOFF.md,
+// needs a schema change (e.g. a server-side card-count function) to do properly.
 async function loadDecksRemote(userId) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -187,6 +206,13 @@ async function loadAllQuizStatesRemote(userId) {
 }
 
 // --- Public API: dispatches to remote or local depending on sign-in state ---
+
+// Guest mode (IndexedDB) is already fast/local, so it has no separate lightweight path —
+// this and loadDecks() both just read straight from IndexedDB there.
+export async function loadDecksMeta() {
+  const userId = await getUserId();
+  return userId ? loadDecksMetaRemote(userId) : loadDecksLocal();
+}
 
 export async function loadDecks() {
   const userId = await getUserId();

@@ -8,7 +8,7 @@ import DecksView from './DecksView';
 import FlashcardsView from './FlashcardsView';
 import QuestionsView from './QuestionsView';
 import SettingsView from './SettingsView';
-import { loadDecks, upsertDeck, deleteDeck } from '../lib/db';
+import { loadDecks, loadDecksMeta, upsertDeck, deleteDeck } from '../lib/db';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
 
@@ -23,14 +23,22 @@ export default function Dashboard() {
   const { user, signOut } = useAuth();
   const guestMode = !supabaseConfigured;
 
-  // A failed fetch here used to render exactly like "you have no decks" — this account's
-  // deck list is large enough (many MB of embedded slide images) that the fetch can
-  // genuinely time out, and there was no error handling to distinguish "empty" from
-  // "failed." Surface the failure explicitly instead of silently clearing the list.
+  // Two-stage load: the lightweight metadata query paints the deck list almost instantly
+  // (no card/image data), then the full fetch fills in `cards` per deck in the background.
+  // Deck list items read `cards === null` as "still loading" rather than "empty" — see
+  // FlashcardsView/QuestionsView/DeckList. A failed fetch here used to render exactly like
+  // "you have no decks" (this account's deck data is large enough that the full fetch can
+  // genuinely time out), so both stages surface real errors instead of silently clearing
+  // the list.
   function fetchDecks() {
     setDecksLoading(true);
     setDecksError(null);
-    loadDecks()
+    loadDecksMeta()
+      .then((meta) => {
+        setDecks(meta);
+        setDecksLoading(false);
+        return loadDecks();
+      })
       .then(setDecks)
       .catch((err) => setDecksError(err.message || 'Failed to load your decks'))
       .finally(() => setDecksLoading(false));
@@ -140,7 +148,14 @@ export default function Dashboard() {
       />
     );
   } else {
-    content = <HomeView userLabel={guestMode ? null : user?.email?.split('@')[0]} onNavigate={handleNavigate} />;
+    content = (
+      <HomeView
+        userLabel={guestMode ? null : user?.email?.split('@')[0]}
+        decks={decks}
+        onNavigate={handleNavigate}
+        onStudy={handleStudy}
+      />
+    );
   }
 
   return (

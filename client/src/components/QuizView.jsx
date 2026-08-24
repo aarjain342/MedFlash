@@ -11,6 +11,7 @@ import {
   getOverallStats,
 } from '../lib/quizEngine';
 import { loadQuizState, saveQuizState } from '../lib/db';
+import { recordActivity } from '../lib/streak';
 
 const PREFS_KEY = 'medflash:quizPrefs';
 const LOCKED_IN_EXIT_PASSWORD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1324';
@@ -216,6 +217,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   function handleSubmit() {
     if (selected == null || !current || !quizState) return;
+    recordActivity();
     const result = submitAnswer(quizState, current.topicName, current.index, current.presented, selected);
     setFeedback({ correct: result.correct, explanation: current.presented.explanation });
     void saveQuizState(deck.id, quizState);
@@ -430,6 +432,9 @@ export default function QuizView({ deck, onExit, onStudy }) {
             <button className="ghost small" onClick={() => setExitPasswordOpen(true)}>Exit locked-in mode</button>
           ) : (
             <div className="locked-in-exit-form">
+              <span className="locked-in-password-hint muted small">
+                Type <code>{LOCKED_IN_EXIT_PASSWORD}</code> to confirm:
+              </span>
               <input
                 type="text"
                 autoFocus
@@ -520,6 +525,11 @@ export default function QuizView({ deck, onExit, onStudy }) {
                 </div>
                 <button className="primary small" onClick={startLockedIn}>Lock in</button>
               </div>
+            )}
+            {!lockedIn && (
+              <p className="muted small locked-in-hint">
+                Exit early by typing <code>{LOCKED_IN_EXIT_PASSWORD}</code> — enough friction to stop you bailing, not a real lock.
+              </p>
             )}
 
             <div className="sidebar-section">

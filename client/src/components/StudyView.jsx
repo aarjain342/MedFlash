@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { isDue, reviewCard } from '../lib/leitner';
+import { recordActivity } from '../lib/streak';
 
 function CardTable({ table }) {
   return (
@@ -37,6 +38,7 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
   const currentImage = current?.image || deck.cards.find((c) => c.page === current?.page && c.image)?.image;
 
   function handleAnswer(remembered) {
+    recordActivity();
     const updatedCard = reviewCard(current, remembered);
     const cards = deck.cards.map((c) => (c.id === current.id ? updatedCard : c));
     onUpdateDeck({ ...deck, cards });

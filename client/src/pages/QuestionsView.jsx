@@ -13,9 +13,9 @@ export default function QuestionsView({ decks, decksLoading, onQuiz }) {
       ) : (
         <div className="deck-picker">
           {decks.map((d) => (
-            <button key={d.id} className="deck-picker-item" onClick={() => onQuiz(d)}>
+            <button key={d.id} className="deck-picker-item" disabled={!d.cards} onClick={() => onQuiz(d)}>
               {d.name}
-              <span className="muted small">{d.cards.length} cards</span>
+              <span className="muted small">{d.cards ? `${d.cards.length} cards` : 'Loading…'}</span>
             </button>
           ))}
         </div>

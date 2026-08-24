@@ -174,6 +174,58 @@
   max-width: 1100px;
 }
 
+.app-shell-content .home-grid {
+  max-width: 1160px;
+}
+
+.app-sidebar {
+  transition: width 0.18s ease, padding 0.18s ease;
+}
+
+.app-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+.app-sidebar.collapsed .app-sidebar-top {
+  justify-content: center;
+}
+
+.sidebar-collapse-toggle {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sidebar-collapse-toggle:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-sidebar.collapsed {
+  width: 76px;
+  padding: 24px 12px;
+}
+
+.app-sidebar.collapsed .sidebar-nav-item {
+  justify-content: center;
+  padding: 11px;
+}
+
+.app-sidebar.collapsed .sidebar-footer {
+  align-items: center;
+}
+
 @media (max-width: 860px) {
   .app-sidebar {
     width: 72px;
@@ -1073,6 +1125,20 @@ button.danger {
   justify-content: space-between;
 }
 
+.locked-in-hint {
+  padding: 2px 0 8px;
+  line-height: 1.4;
+}
+
+.locked-in-hint code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text);
+}
+
 .locked-in-bar {
   grid-column: 1 / -1;
   display: flex;
@@ -1113,6 +1179,20 @@ button.danger {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.locked-in-password-hint {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.locked-in-password-hint code {
+  font-family: var(--font-mono);
+  color: white;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
 }
 
 .locked-in-exit-form input {
@@ -1486,4 +1566,150 @@ button.danger {
 .flashcard-row-a {
   margin: 0;
   font-size: 14px;
+}
+
+/* --- Home dashboard: two-column layout, Ask MedFlash gets the tall right column --- */
+
+.home-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.home-grid-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.home-chat-panel {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 32px;
+}
+
+.home-chat-panel .chat-panel {
+  flex: 1;
+}
+
+.home-chat-panel .chat-messages {
+  max-height: none;
+  flex: 1;
+}
+
+@media (max-width: 1040px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+  .home-chat-panel {
+    position: static;
+  }
+}
+
+.home-greeting-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.streak-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-tint);
+  color: var(--primary-dark);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.home-widget-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 640px) {
+  .home-widget-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.due-today-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.due-today-count {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 600;
+  color: var(--accent-warm);
+  margin: 4px 0 0;
+  line-height: 1;
+}
+
+.due-today-panel .primary {
+  margin-top: 14px;
+  align-self: flex-start;
+}
+
+.random-card-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.random-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.random-card-header h2 {
+  margin: 0;
+}
+
+.random-card-flip {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  cursor: pointer;
+  flex: 1;
+  min-height: 100px;
+}
+
+.random-card-flip:hover {
+  border-color: var(--primary);
+}
+
+.random-card-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.random-card-text {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.random-card-hint {
+  margin-top: auto;
 }
