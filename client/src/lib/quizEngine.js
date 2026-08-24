@@ -48,21 +48,23 @@ function buildTopicEntry(name, questions) {
 }
 
 // `shuffle: true` randomizes topic order (independent of slide order) instead of following
-// the order topics were generated in, which itself follows slide order.
+// the order topics were generated in, which itself follows slide order. `originalOrder`
+// keeps the un-shuffled (slide/arrival) order around so shuffle can be toggled on/off later
+// in the session, not just chosen once up front — see setShuffleMode.
 export function initQuizState(topicsWithQuestions, { shuffle = false } = {}) {
   const topics = {};
-  let order = [];
+  const originalOrder = [];
 
   for (const { name, questions } of topicsWithQuestions) {
     const entry = buildTopicEntry(name, questions);
     if (!entry) continue;
     topics[name] = entry;
-    order.push(name);
+    originalOrder.push(name);
   }
 
-  if (shuffle) order = shuffleArray(order);
+  const order = shuffle ? shuffleArray(originalOrder) : [...originalOrder];
 
-  return { topics, order, cursor: 0, complete: order.length === 0, shuffle: !!shuffle };
+  return { topics, order, originalOrder, cursor: 0, complete: order.length === 0, shuffle: !!shuffle };
 }
 
 // Merges a topic that finished generating AFTER the quiz session already started (background
@@ -73,6 +75,8 @@ export function addTopicToState(state, name, questions) {
   const entry = buildTopicEntry(name, questions);
   if (!entry || state.topics[name]) return;
   state.topics[name] = entry;
+  if (!state.originalOrder) state.originalOrder = [...state.order]; // backfill for older saved state
+  state.originalOrder.push(name);
 
   if (state.shuffle && state.order.length > 0) {
     const insertAt = 1 + Math.floor(Math.random() * state.order.length);
@@ -81,6 +85,29 @@ export function addTopicToState(state, name, questions) {
     state.order.push(name);
   }
   state.complete = false;
+}
+
+// Switches between slide order and shuffled order at any point in a session, not just at
+// setup — re-derives `order` from `originalOrder` (never-mastered topics only) rather than
+// re-shuffling in place, so toggling shuffle off actually restores slide order exactly.
+export function setShuffleMode(state, shuffle) {
+  if (!state.originalOrder) state.originalOrder = [...state.order];
+  state.shuffle = !!shuffle;
+  const remaining = state.originalOrder.filter((name) => state.topics[name] && !state.topics[name].mastered);
+  state.order = shuffle ? shuffleArray(remaining) : remaining;
+  if (state.cursor >= state.order.length) state.cursor = 0;
+}
+
+// Jumps straight to a specific question the user picked from the topic/question list,
+// instead of the engine's automatic pick order. Doesn't disturb progression state — the
+// question's position in its topic's rotation (qCursor) is updated so the auto-picker
+// resumes sensibly afterward, and submitAnswer(...) works exactly the same either way.
+export function presentQuestion(state, topicName, index) {
+  const topic = state.topics[topicName];
+  if (!topic || !topic.questions[index]) return null;
+  topic.qCursor = index;
+  const question = topic.questions[index];
+  return { topicName, index, tier: question.difficulty, presented: shuffleOptions(question) };
 }
 
 function shuffleOptions(question) {

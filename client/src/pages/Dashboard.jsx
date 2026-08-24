@@ -113,9 +113,18 @@ export default function Dashboard() {
       </ErrorBoundary>
     );
   } else if (activeView === 'flashcards') {
-    content = <FlashcardsView decks={decks} onStudy={handleStudy} onQuiz={handleQuiz} onDelete={handleDeleteDeck} busyDeckId={busyDeckId} />;
+    content = (
+      <FlashcardsView
+        decks={decks}
+        decksLoading={decksLoading}
+        onStudy={handleStudy}
+        onQuiz={handleQuiz}
+        onDelete={handleDeleteDeck}
+        busyDeckId={busyDeckId}
+      />
+    );
   } else if (activeView === 'questions') {
-    content = <QuestionsView decks={decks} onQuiz={handleQuiz} />;
+    content = <QuestionsView decks={decks} decksLoading={decksLoading} onQuiz={handleQuiz} />;
   } else if (activeView === 'settings') {
     content = <SettingsView user={user} guestMode={guestMode} onSignOut={signOut} />;
   } else if (activeView === 'decks') {

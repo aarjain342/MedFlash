@@ -3,6 +3,8 @@ import { generateQuizStream } from '../lib/quizApi';
 import {
   initQuizState,
   addTopicToState,
+  setShuffleMode,
+  presentQuestion,
   getCurrentQuestion,
   submitAnswer,
   getTopicSummaries,
@@ -71,7 +73,6 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   // Locked-in mode
   const [lockedIn, setLockedIn] = useState(null); // { endsAt, durationMin } | null
-  const [lockedInMenuOpen, setLockedInMenuOpen] = useState(false);
   const [lockedInDuration, setLockedInDuration] = useState(30);
   const [remainingMs, setRemainingMs] = useState(null);
   const [exitPasswordOpen, setExitPasswordOpen] = useState(false);
@@ -231,6 +232,25 @@ export default function QuizView({ deck, onExit, onStudy }) {
     }
   }
 
+  // Lets the user jump straight to any question in the bank instead of only the one the
+  // engine would auto-pick next.
+  function handleSelectQuestion(topicName, index) {
+    if (!quizState) return;
+    const q = presentQuestion(quizState, topicName, index);
+    if (!q) return;
+    setSelected(null);
+    setFeedback(null);
+    setCurrent(q);
+    if (phaseRef.current !== 'ready') updatePhase('ready');
+  }
+
+  function handleToggleShuffle() {
+    if (!quizState) return;
+    setShuffleMode(quizState, !quizState.shuffle);
+    void saveQuizState(deck.id, quizState);
+    setQuizState({ ...quizState });
+  }
+
   async function startLockedIn() {
     try {
       await document.documentElement.requestFullscreen?.();
@@ -238,7 +258,6 @@ export default function QuizView({ deck, onExit, onStudy }) {
       // Fullscreen can be denied/unsupported — the timer and exit-gate still work without it.
     }
     setLockedIn({ endsAt: Date.now() + lockedInDuration * 60 * 1000, durationMin: lockedInDuration });
-    setLockedInMenuOpen(false);
   }
 
   function endLockedIn() {
@@ -471,6 +490,38 @@ export default function QuizView({ deck, onExit, onStudy }) {
               <p className="warning small">Background generation hit a snag: {bgGenError}</p>
             )}
 
+            {/* Always visible — not tucked behind a collapsible section, so shuffle/difficulty/
+                locked-in are easy to find even when resuming a quiz that skips the setup screen. */}
+            <div className="quiz-toolbar">
+              <button
+                className={`toolbar-btn ${quizState?.shuffle ? 'active' : ''}`}
+                onClick={handleToggleShuffle}
+                title="Toggle between slide order and shuffled question order"
+              >
+                {quizState?.shuffle ? '🔀 Shuffled' : '≡ Slide order'}
+              </button>
+              <span className="quiz-difficulty-badge" title="Set when the quiz was generated">
+                {prefs.difficulty === 'easy' ? 'Easy' : 'Hard'}
+              </span>
+            </div>
+
+            {!lockedIn && (
+              <div className="quiz-toolbar locked-in-toolbar">
+                <div className="segmented">
+                  {LOCKED_IN_DURATIONS.map((d) => (
+                    <button
+                      key={d}
+                      className={lockedInDuration === d ? 'active' : ''}
+                      onClick={() => setLockedInDuration(d)}
+                    >
+                      {d}m
+                    </button>
+                  ))}
+                </div>
+                <button className="primary small" onClick={startLockedIn}>Lock in</button>
+              </div>
+            )}
+
             <div className="sidebar-section">
               <button className="sidebar-section-header" onClick={() => setFlashcardsOpen((o) => !o)}>
                 <span>Flashcards</span>
@@ -491,70 +542,51 @@ export default function QuizView({ deck, onExit, onStudy }) {
               </button>
               {questionsOpen && (
                 <ul className="topic-tree">
-                  {topicSummaries.map((t) => (
-                    <li key={t.name} className="topic-tree-item">
-                      <button
-                        className={`topic-tree-toggle ${t.mastered ? 'mastered' : ''} ${
-                          current?.topicName === t.name ? 'active' : ''
-                        }`}
-                        onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
-                      >
-                        <span className="topic-tree-name" title={t.name}>
-                          {t.mastered ? '✓ ' : ''}
-                          {t.name}
-                        </span>
-                        <DifficultyDots tier={t.tier} />
-                      </button>
+                  {topicSummaries.map((t) => {
+                    const doneCount = t.questions.filter((q) => q.correct).length;
+                    return (
+                      <li key={t.name} className="topic-tree-item">
+                        <button
+                          className={`topic-tree-toggle ${t.mastered ? 'mastered' : ''} ${
+                            current?.topicName === t.name ? 'active' : ''
+                          }`}
+                          onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
+                        >
+                          <span className="topic-tree-name" title={t.name}>
+                            {t.mastered ? '✓ ' : ''}
+                            {t.name}
+                          </span>
+                          <span className="topic-progress muted small">{doneCount}/{t.questions.length}</span>
+                        </button>
 
-                      {expandedTopic === t.name && (
-                        <ul className="question-tree-list">
-                          {t.questions.map((q) => {
-                            const isActive = current?.topicName === t.name && current.index === q.index;
-                            const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
-                            return (
-                              <li key={q.index} className={`question-tree-item ${status} ${isActive ? 'active' : ''}`}>
-                                <span className={`question-status-icon ${status}`} aria-hidden="true">
-                                  {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '•'}
-                                </span>
-                                <span className="question-tree-stem">{q.stem}</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
+                        {expandedTopic === t.name && (
+                          <ul className="question-tree-list">
+                            {t.questions.map((q) => {
+                              const isActive = current?.topicName === t.name && current.index === q.index;
+                              const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
+                              return (
+                                <li key={q.index} className={`question-tree-item ${status} ${isActive ? 'active' : ''}`}>
+                                  <button
+                                    className="question-tree-select"
+                                    onClick={() => handleSelectQuestion(t.name, q.index)}
+                                  >
+                                    <span className={`question-status-icon ${status}`} aria-hidden="true">
+                                      {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '•'}
+                                    </span>
+                                    <span className="question-tree-stem">{q.stem}</span>
+                                    <DifficultyDots tier={q.difficulty} />
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
-
-            {!lockedIn && (
-              <div className="sidebar-section">
-                <button className="sidebar-section-header" onClick={() => setLockedInMenuOpen((o) => !o)}>
-                  <span>Locked in mode</span>
-                  <span aria-hidden="true">{lockedInMenuOpen ? '−' : '+'}</span>
-                </button>
-                {lockedInMenuOpen && (
-                  <div className="sidebar-section-body">
-                    <p className="muted small">
-                      Full-screen focus session with a timer. Exiting early needs a long password.
-                    </p>
-                    <div className="segmented">
-                      {LOCKED_IN_DURATIONS.map((d) => (
-                        <button
-                          key={d}
-                          className={lockedInDuration === d ? 'active' : ''}
-                          onClick={() => setLockedInDuration(d)}
-                        >
-                          {d}m
-                        </button>
-                      ))}
-                    </div>
-                    <button className="primary small" onClick={startLockedIn}>Start locked-in session</button>
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>

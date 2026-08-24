@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { exportDeckToAnki } from '../lib/ankiExport';
 
-export default function FlashcardsView({ decks, onStudy, onQuiz, onDelete, busyDeckId }) {
+export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, onDelete, busyDeckId }) {
   const [selectedId, setSelectedId] = useState(decks[0]?.id ?? null);
   const [exportingId, setExportingId] = useState(null);
   const [exportError, setExportError] = useState('');
@@ -22,7 +22,12 @@ export default function FlashcardsView({ decks, onStudy, onQuiz, onDelete, busyD
   return (
     <div className="panel">
       <h2>Flashcards</h2>
-      {decks.length === 0 ? (
+      {decksLoading ? (
+        <div className="decks-loading">
+          <span className="spinner" aria-hidden="true" />
+          <span className="muted">Loading…</span>
+        </div>
+      ) : decks.length === 0 ? (
         <p className="muted">No decks yet — generate one from the Decks page first.</p>
       ) : (
         <>
