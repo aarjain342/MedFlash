@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { loadAllQuizStates } from '../lib/db';
 import { getStatsAcross } from '../lib/quizEngine';
-import StreakCalendar from './StreakCalendar';
 
 function AccuracyRing({ percent }) {
   const r = 54;
@@ -41,10 +40,7 @@ export default function StatsSummary({ title = 'Your stats' }) {
   if (!stats) {
     return (
       <div className="panel">
-        <div className="stats-panel-header">
-          <h2>{title}</h2>
-          <StreakCalendar />
-        </div>
+        <h2>{title}</h2>
         <div className="decks-loading">
           <span className="spinner" aria-hidden="true" />
           <span className="muted">Loading your stats…</span>
@@ -55,10 +51,7 @@ export default function StatsSummary({ title = 'Your stats' }) {
 
   return (
     <div className="panel stats-panel">
-      <div className="stats-panel-header">
-        <h2>{title}</h2>
-        <StreakCalendar />
-      </div>
+      <h2>{title}</h2>
       {stats.attempted === 0 ? (
         <p className="muted">Take a USMLE quiz on one of your decks to start building stats here.</p>
       ) : (

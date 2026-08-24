@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import StatsSummary from '../components/StatsSummary';
+import StreakCalendar from '../components/StreakCalendar';
 import ChatPanel from '../components/ChatPanel';
 import { isDue } from '../lib/leitner';
 
@@ -95,6 +96,7 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
         </div>
 
         <StatsSummary />
+        <StreakCalendar />
       </div>
 
       {chatExpanded && <div className="chat-overlay-backdrop" onClick={() => setChatExpanded(false)} />}
