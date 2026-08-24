@@ -162,6 +162,18 @@ availability/naming changes fast and deprecates without much warning.
      doesn't need a schema change, just touches `DecksView`/`FlashcardsView`/`QuestionsView`/
      `DeckList` (they all read `deck.cards.length` and due-counts directly) — worth doing
      next if initial-load failures keep showing up.
+   - **Confirmed happening in production, multiple accounts** (2026-08-23, same day):
+     user reported "sign out and back in, decks are gone." Checked `public.decks` directly
+     — data was never lost (rows all present, correctly scoped by `user_id`), so this was
+     always the initial-load fetch failing silently: `Dashboard.jsx`'s mount effect had no
+     `.catch()`, so a failed/timed-out `loadDecks()` just left the `decks` state at its
+     empty initial value — indistinguishable from "no decks" in the UI. Two accounts each
+     have double-digit-MB total deck size (49MB across 3 decks, 71MB across 11), which is
+     genuinely a lot to pull through PostgREST on every single sign-in. Shipped an interim
+     fix: retry-with-backoff on `loadDecksRemote` (same pattern as the write-path retry)
+     plus a visible error banner + Retry button in `Dashboard.jsx` instead of silently
+     rendering empty. **This is a mitigation, not the fix** — the real fix is still the
+     lightweight-list-query refactor described above; asked the user whether to do it next.
 
 ## Auth / accounts
 

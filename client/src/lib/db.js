@@ -105,21 +105,36 @@ function rowToDeck(row) {
   return { id: row.id, name: row.name, sourceFile: row.source_file, createdAt: row.created_at, cards: row.cards };
 }
 
-async function loadDecksRemote(userId) {
-  const { data, error } = await supabase
-    .from('decks')
-    .select('id, name, source_file, created_at, cards')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data.map(rowToDeck);
-}
-
 // Postgres error code 57014 = statement timeout. A large/slow-to-write deck can trip this
 // transiently (e.g. under momentary DB load) even when the payload itself is reasonable,
 // so one retry after a short pause is worth it before giving up.
 function isRetryableSaveError(error) {
   return error?.code === '57014' || /statement timeout/i.test(error?.message || '');
+}
+
+// This SELECT pulls the full cards column (including every embedded slide image) for
+// EVERY deck the user owns, just to build the list view — for an account with several
+// large decks that can be tens of MB transferred fresh on every sign-in. That made this
+// query genuinely prone to timing out, and since it fires on every fresh Dashboard mount,
+// a failed fetch here used to be indistinguishable from "you have no decks" (see
+// loadDecks() in Dashboard.jsx, which had no error handling). Retrying softens the
+// transient case; Dashboard now also surfaces a real error instead of a silent empty
+// list. The real fix is not re-fetching full card/image payloads just to list decks —
+// tracked in HANDOFF.md, needs a schema change to do properly.
+async function loadDecksRemote(userId) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from('decks')
+      .select('id, name, source_file, created_at, cards')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) return data.map(rowToDeck);
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
 }
 
 async function upsertDeckRemote(userId, deck) {

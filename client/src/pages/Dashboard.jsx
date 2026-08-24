@@ -15,6 +15,7 @@ import { supabaseConfigured } from '../lib/supabaseClient';
 export default function Dashboard() {
   const [decks, setDecks] = useState([]);
   const [decksLoading, setDecksLoading] = useState(true);
+  const [decksError, setDecksError] = useState(null);
   const [busyDeckId, setBusyDeckId] = useState(null);
   const [activeView, setActiveView] = useState('home'); // home | decks | flashcards | questions | settings
   const [studyingDeck, setStudyingDeck] = useState(null);
@@ -22,10 +23,21 @@ export default function Dashboard() {
   const { user, signOut } = useAuth();
   const guestMode = !supabaseConfigured;
 
-  useEffect(() => {
+  // A failed fetch here used to render exactly like "you have no decks" — this account's
+  // deck list is large enough (many MB of embedded slide images) that the fetch can
+  // genuinely time out, and there was no error handling to distinguish "empty" from
+  // "failed." Surface the failure explicitly instead of silently clearing the list.
+  function fetchDecks() {
+    setDecksLoading(true);
+    setDecksError(null);
     loadDecks()
       .then(setDecks)
+      .catch((err) => setDecksError(err.message || 'Failed to load your decks'))
       .finally(() => setDecksLoading(false));
+  }
+
+  useEffect(() => {
+    fetchDecks();
   }, []);
 
   function handleNavigate(view) {
@@ -130,6 +142,12 @@ export default function Dashboard() {
       guestMode={guestMode}
       onSignOut={signOut}
     >
+      {decksError && (
+        <div className="deck-load-error">
+          <span>Couldn't load your decks: {decksError}</span>
+          <button className="ghost" onClick={fetchDecks}>Retry</button>
+        </div>
+      )}
       {content}
     </AppShell>
   );
