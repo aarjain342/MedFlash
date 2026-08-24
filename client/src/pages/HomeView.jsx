@@ -110,17 +110,17 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
         </div>
 
         <StatsSummary />
-
-        <div className="home-widget-row">
-          <DueTodayWidget decks={decks} onStudy={onStudy} />
-          <RandomCardWidget decks={decks} />
-        </div>
       </div>
 
       <div className="panel home-chat-panel">
         <h2>Ask MedFlash</h2>
         <p className="muted">A study assistant for quick medical questions — not a substitute for real coursework.</p>
         <ChatPanel />
+      </div>
+
+      <div className="home-widget-row">
+        <DueTodayWidget decks={decks} onStudy={onStudy} />
+        <RandomCardWidget decks={decks} />
       </div>
     </div>
   );
