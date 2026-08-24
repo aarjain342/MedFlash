@@ -1597,8 +1597,6 @@ button.danger {
 .home-chat-panel {
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 32px;
   min-width: 0;
 }
 
@@ -1617,9 +1615,6 @@ button.danger {
 @media (max-width: 1040px) {
   .home-grid {
     grid-template-columns: 1fr;
-  }
-  .home-chat-panel {
-    position: static;
   }
 }
 
