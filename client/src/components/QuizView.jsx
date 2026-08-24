@@ -2,12 +2,38 @@ import { useEffect, useRef, useState } from 'react';
 import { generateQuizStream } from '../lib/quizApi';
 import {
   initQuizState,
+  addTopicToState,
   getCurrentQuestion,
   submitAnswer,
   getTopicSummaries,
   getOverallStats,
 } from '../lib/quizEngine';
 import { loadQuizState, saveQuizState } from '../lib/db';
+
+const PREFS_KEY = 'medflash:quizPrefs';
+const LOCKED_IN_EXIT_PASSWORD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1324';
+const LOCKED_IN_DURATIONS = [30, 60, 90];
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      shuffle: !!parsed.shuffle,
+      difficulty: parsed.difficulty === 'easy' ? 'easy' : 'hard',
+    };
+  } catch {
+    return { shuffle: false, difficulty: 'hard' };
+  }
+}
+
+function savePrefs(prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // Storage unavailable (private browsing, quota) — preferences just won't persist.
+  }
+}
 
 function DifficultyDots({ tier }) {
   return (
@@ -19,19 +45,46 @@ function DifficultyDots({ tier }) {
   );
 }
 
+function formatClock(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export default function QuizView({ deck, onExit, onStudy }) {
-  const [phase, setPhase] = useState('loading'); // loading | generating | ready | complete | error
+  const [phase, setPhase] = useState('loading'); // loading | setup | generating | ready | complete | error
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
   const [liveTopics, setLiveTopics] = useState([]); // [{ name, questions, error }] — grows as SSE events arrive
+  const [bgGenerating, setBgGenerating] = useState(false);
+  const [bgGenError, setBgGenError] = useState('');
   const [expandedTopic, setExpandedTopic] = useState(null);
   const [flashcardsOpen, setFlashcardsOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [sidebarMinimized, setSidebarMinimized] = useState(false);
   const [error, setError] = useState('');
   const [quizState, setQuizState] = useState(null);
   const [current, setCurrent] = useState(null); // { topicName, tier, presented }
   const [selected, setSelected] = useState(null);
   const [feedback, setFeedback] = useState(null); // { correct, explanation }
+  const [prefs, setPrefs] = useState(loadPrefs);
+
+  // Locked-in mode
+  const [lockedIn, setLockedIn] = useState(null); // { endsAt, durationMin } | null
+  const [lockedInMenuOpen, setLockedInMenuOpen] = useState(false);
+  const [lockedInDuration, setLockedInDuration] = useState(30);
+  const [remainingMs, setRemainingMs] = useState(null);
+  const [exitPasswordOpen, setExitPasswordOpen] = useState(false);
+  const [exitPasswordValue, setExitPasswordValue] = useState('');
+  const [exitPasswordError, setExitPasswordError] = useState(false);
+
   const startedRef = useRef(false);
+  const phaseRef = useRef('loading');
+
+  function updatePhase(p) {
+    phaseRef.current = p;
+    setPhase(p);
+  }
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -40,28 +93,54 @@ export default function QuizView({ deck, onExit, onStudy }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Locked-in countdown — ticks once a second, auto-ends the session (no password needed)
+  // when time runs out.
+  useEffect(() => {
+    if (!lockedIn) return undefined;
+    const tick = () => {
+      const left = lockedIn.endsAt - Date.now();
+      setRemainingMs(left);
+      if (left <= 0) endLockedIn();
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedIn]);
+
   async function bootstrap() {
     const saved = await loadQuizState(deck.id);
     if (saved) {
       setQuizState(saved);
       const next = getCurrentQuestion(saved);
       if (!next) {
-        setPhase('complete');
+        updatePhase('complete');
       } else {
         setCurrent(next);
-        setPhase('ready');
+        updatePhase('ready');
       }
       return;
     }
-    await generate();
+    updatePhase('setup');
+  }
+
+  function updatePrefs(patch) {
+    setPrefs((p) => {
+      const next = { ...p, ...patch };
+      savePrefs(next);
+      return next;
+    });
   }
 
   async function generate() {
-    setPhase('generating');
+    updatePhase('generating');
     setError('');
+    setBgGenError('');
     setLiveTopics([]);
+    setGenProgress({ done: 0, total: 0 });
     const topicResults = new Map();
     let total = 0;
+    let localState = null;
 
     try {
       // Only topic/question/answer feed the quiz prompt — strip everything else (notably
@@ -72,7 +151,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
         answer: c.answer,
       }));
 
-      await generateQuizStream(promptCards, ({ type, data }) => {
+      await generateQuizStream(promptCards, prefs.difficulty, ({ type, data }) => {
         if (type === 'start') {
           total = data.totalTopics;
           setGenProgress({ done: 0, total });
@@ -80,6 +159,35 @@ export default function QuizView({ deck, onExit, onStudy }) {
           topicResults.set(data.topic, data.questions);
           setGenProgress((p) => ({ done: p.done + 1, total }));
           setLiveTopics((t) => [...t, { name: data.topic, questions: data.questions }]);
+
+          if (!localState) {
+            // First topic to arrive — let the user start answering immediately instead of
+            // waiting for every topic to finish generating. Remaining topics keep streaming
+            // in behind the scenes and get folded into the session as they land.
+            const topics = [...topicResults.entries()].map(([name, questions]) => ({ name, questions }));
+            localState = initQuizState(topics, { shuffle: prefs.shuffle });
+            setQuizState(localState);
+            void saveQuizState(deck.id, localState);
+            const next = getCurrentQuestion(localState);
+            if (next) {
+              setCurrent(next);
+              updatePhase('ready');
+            }
+            setBgGenerating(true);
+          } else {
+            addTopicToState(localState, data.topic, data.questions);
+            void saveQuizState(deck.id, localState);
+            setQuizState({ ...localState });
+            // If the user had already finished every topic that was loaded so far, this
+            // new arrival brings the session back to life.
+            if (phaseRef.current === 'complete') {
+              const next = getCurrentQuestion(localState);
+              if (next) {
+                setCurrent(next);
+                updatePhase('ready');
+              }
+            }
+          }
         } else if (type === 'topic-error') {
           setGenProgress((p) => ({ done: p.done + 1, total }));
           setLiveTopics((t) => [...t, { name: data.topic, error: data.error }]);
@@ -88,23 +196,20 @@ export default function QuizView({ deck, onExit, onStudy }) {
         }
       });
 
-      const topics = [...topicResults.entries()].map(([name, questions]) => ({ name, questions }));
-      if (topics.length === 0) throw new Error('No quiz questions could be generated for this deck.');
-
-      const state = initQuizState(topics);
-      await saveQuizState(deck.id, state);
-      setQuizState(state);
-
-      const next = getCurrentQuestion(state);
-      if (!next) {
-        setPhase('complete');
-      } else {
-        setCurrent(next);
-        setPhase('ready');
+      if (!localState) {
+        throw new Error('No quiz questions could be generated for this deck.');
       }
+      setBgGenerating(false);
     } catch (err) {
-      setError(err.message);
-      setPhase('error');
+      setBgGenerating(false);
+      if (localState) {
+        // The user already has a usable session running — don't blow it away, just flag
+        // that background generation hit a problem.
+        setBgGenError(err.message);
+      } else {
+        setError(err.message);
+        updatePhase('error');
+      }
     }
   }
 
@@ -120,9 +225,37 @@ export default function QuizView({ deck, onExit, onStudy }) {
     setFeedback(null);
     const next = getCurrentQuestion(quizState);
     if (!next) {
-      setPhase('complete');
+      updatePhase('complete');
     } else {
       setCurrent(next);
+    }
+  }
+
+  async function startLockedIn() {
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch {
+      // Fullscreen can be denied/unsupported — the timer and exit-gate still work without it.
+    }
+    setLockedIn({ endsAt: Date.now() + lockedInDuration * 60 * 1000, durationMin: lockedInDuration });
+    setLockedInMenuOpen(false);
+  }
+
+  function endLockedIn() {
+    setLockedIn(null);
+    setExitPasswordOpen(false);
+    setExitPasswordValue('');
+    setExitPasswordError(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }
+
+  function confirmExitLockedIn() {
+    if (exitPasswordValue === LOCKED_IN_EXIT_PASSWORD) {
+      endLockedIn();
+    } else {
+      setExitPasswordError(true);
     }
   }
 
@@ -140,13 +273,72 @@ export default function QuizView({ deck, onExit, onStudy }) {
     );
   }
 
+  if (phase === 'setup') {
+    return (
+      <div className="quiz-centered">
+        <div className="panel quiz-panel-narrow quiz-setup-panel">
+          <h2>Set up your quiz</h2>
+          <p className="muted">Questions are pulled from "{deck.name}".</p>
+
+          <div className="quiz-setup-options">
+            <div className="quiz-setup-row">
+              <div>
+                <strong>Question order</strong>
+                <p className="muted small">Slide order follows how the deck was generated.</p>
+              </div>
+              <div className="segmented">
+                <button
+                  className={!prefs.shuffle ? 'active' : ''}
+                  onClick={() => updatePrefs({ shuffle: false })}
+                >
+                  Slide order
+                </button>
+                <button
+                  className={prefs.shuffle ? 'active' : ''}
+                  onClick={() => updatePrefs({ shuffle: true })}
+                >
+                  Shuffle
+                </button>
+              </div>
+            </div>
+
+            <div className="quiz-setup-row">
+              <div>
+                <strong>Difficulty</strong>
+                <p className="muted small">Easy: vocab & basics. Hard: clinical application.</p>
+              </div>
+              <div className="segmented">
+                <button
+                  className={prefs.difficulty === 'easy' ? 'active' : ''}
+                  onClick={() => updatePrefs({ difficulty: 'easy' })}
+                >
+                  Easy
+                </button>
+                <button
+                  className={prefs.difficulty === 'hard' ? 'active' : ''}
+                  onClick={() => updatePrefs({ difficulty: 'hard' })}
+                >
+                  Hard
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button className="primary" onClick={generate}>Start quiz</button>
+          <button className="link" onClick={onExit}>Back to decks</button>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === 'generating') {
     return (
       <div className="quiz-centered">
         <div className="panel quiz-generating-panel">
           <h2>Building your USMLE-style quiz</h2>
           <p className="muted">
-            Generating progressively harder questions for each topic in "{deck.name}"…
+            Generating progressively harder questions for each topic in "{deck.name}"… the first
+            question will be ready as soon as one topic finishes.
           </p>
           {genProgress.total > 0 && (
             <div className="progress">
@@ -209,78 +401,162 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   return (
     <div className="quiz-layout">
-      <div className="panel quiz-sidebar">
-        <div className="quiz-stats-bar">
-          <div className="quiz-stat">
-            <span className="quiz-stat-value correct">{stats.correct}</span>
-            <span className="muted small">Correct</span>
+      {lockedIn && (
+        <div className="locked-in-bar">
+          <div className="locked-in-timer">
+            <span className="eyebrow">Locked in</span>
+            <span className="locked-in-clock">{formatClock(remainingMs ?? 0)}</span>
           </div>
-          <div className="quiz-stat">
-            <span className="quiz-stat-value wrong">{stats.wrong}</span>
-            <span className="muted small">Wrong</span>
-          </div>
-          <div className="quiz-stat">
-            <span className="quiz-stat-value">{stats.accuracy == null ? '—' : `${stats.accuracy}%`}</span>
-            <span className="muted small">Accuracy</span>
-          </div>
-        </div>
-
-        <div className="sidebar-section">
-          <button className="sidebar-section-header" onClick={() => setFlashcardsOpen((o) => !o)}>
-            <span>Flashcards</span>
-            <span aria-hidden="true">{flashcardsOpen ? '−' : '+'}</span>
-          </button>
-          {flashcardsOpen && (
-            <div className="sidebar-section-body">
-              <p className="muted small">{deck.cards.length} cards in "{deck.name}"</p>
-              <button className="ghost small" onClick={() => onStudy?.(deck)}>Study flashcards</button>
+          {!exitPasswordOpen ? (
+            <button className="ghost small" onClick={() => setExitPasswordOpen(true)}>Exit locked-in mode</button>
+          ) : (
+            <div className="locked-in-exit-form">
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type the exit password"
+                value={exitPasswordValue}
+                onChange={(e) => {
+                  setExitPasswordValue(e.target.value);
+                  setExitPasswordError(false);
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && confirmExitLockedIn()}
+              />
+              <button className="primary small" onClick={confirmExitLockedIn}>Confirm exit</button>
+              <button className="link small" onClick={() => setExitPasswordOpen(false)}>Cancel</button>
+              {exitPasswordError && <span className="error small">Incorrect password.</span>}
             </div>
           )}
         </div>
+      )}
 
-        <div className="sidebar-section">
-          <button className="sidebar-section-header" onClick={() => setQuestionsOpen((o) => !o)}>
-            <span>Questions</span>
-            <span aria-hidden="true">{questionsOpen ? '−' : '+'}</span>
-          </button>
-          {questionsOpen && (
-            <ul className="topic-tree">
-              {topicSummaries.map((t) => (
-                <li key={t.name} className="topic-tree-item">
-                  <button
-                    className={`topic-tree-toggle ${t.mastered ? 'mastered' : ''} ${
-                      current?.topicName === t.name ? 'active' : ''
-                    }`}
-                    onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
-                  >
-                    <span className="topic-tree-name" title={t.name}>
-                      {t.mastered ? '✓ ' : ''}
-                      {t.name}
-                    </span>
-                    <DifficultyDots tier={t.tier} />
-                  </button>
+      <div className={`panel quiz-sidebar ${sidebarMinimized ? 'minimized' : ''}`}>
+        <button
+          className="sidebar-minimize-toggle"
+          onClick={() => setSidebarMinimized((m) => !m)}
+          title={sidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}
+          aria-label={sidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}
+        >
+          {sidebarMinimized ? '»' : '«'}
+        </button>
 
-                  {expandedTopic === t.name && (
-                    <ul className="question-tree-list">
-                      {t.questions.map((q) => {
-                        const isActive = current?.topicName === t.name && current.index === q.index;
-                        const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
-                        return (
-                          <li key={q.index} className={`question-tree-item ${status} ${isActive ? 'active' : ''}`}>
-                            <span className={`question-status-icon ${status}`} aria-hidden="true">
-                              {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '•'}
-                            </span>
-                            <span className="question-tree-stem">{q.stem}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {sidebarMinimized ? (
+          <div className="quiz-stats-mini">
+            <span className="quiz-stat-value correct">{stats.correct}</span>
+            <span className="quiz-stat-value wrong">{stats.wrong}</span>
+          </div>
+        ) : (
+          <>
+            <div className="quiz-stats-bar">
+              <div className="quiz-stat">
+                <span className="quiz-stat-value correct">{stats.correct}</span>
+                <span className="muted small">Correct</span>
+              </div>
+              <div className="quiz-stat">
+                <span className="quiz-stat-value wrong">{stats.wrong}</span>
+                <span className="muted small">Wrong</span>
+              </div>
+              <div className="quiz-stat">
+                <span className="quiz-stat-value">{stats.accuracy == null ? '—' : `${stats.accuracy}%`}</span>
+                <span className="muted small">Accuracy</span>
+              </div>
+            </div>
+
+            {bgGenerating && (
+              <p className="muted small quiz-bg-generating">
+                <span className="spinner spinner-tiny" aria-hidden="true" /> More topics generating in the background…
+              </p>
+            )}
+            {bgGenError && (
+              <p className="warning small">Background generation hit a snag: {bgGenError}</p>
+            )}
+
+            <div className="sidebar-section">
+              <button className="sidebar-section-header" onClick={() => setFlashcardsOpen((o) => !o)}>
+                <span>Flashcards</span>
+                <span aria-hidden="true">{flashcardsOpen ? '−' : '+'}</span>
+              </button>
+              {flashcardsOpen && (
+                <div className="sidebar-section-body">
+                  <p className="muted small">{deck.cards.length} cards in "{deck.name}"</p>
+                  <button className="ghost small" onClick={() => onStudy?.(deck)}>Study flashcards</button>
+                </div>
+              )}
+            </div>
+
+            <div className="sidebar-section">
+              <button className="sidebar-section-header" onClick={() => setQuestionsOpen((o) => !o)}>
+                <span>Questions</span>
+                <span aria-hidden="true">{questionsOpen ? '−' : '+'}</span>
+              </button>
+              {questionsOpen && (
+                <ul className="topic-tree">
+                  {topicSummaries.map((t) => (
+                    <li key={t.name} className="topic-tree-item">
+                      <button
+                        className={`topic-tree-toggle ${t.mastered ? 'mastered' : ''} ${
+                          current?.topicName === t.name ? 'active' : ''
+                        }`}
+                        onClick={() => setExpandedTopic((cur) => (cur === t.name ? null : t.name))}
+                      >
+                        <span className="topic-tree-name" title={t.name}>
+                          {t.mastered ? '✓ ' : ''}
+                          {t.name}
+                        </span>
+                        <DifficultyDots tier={t.tier} />
+                      </button>
+
+                      {expandedTopic === t.name && (
+                        <ul className="question-tree-list">
+                          {t.questions.map((q) => {
+                            const isActive = current?.topicName === t.name && current.index === q.index;
+                            const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
+                            return (
+                              <li key={q.index} className={`question-tree-item ${status} ${isActive ? 'active' : ''}`}>
+                                <span className={`question-status-icon ${status}`} aria-hidden="true">
+                                  {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '•'}
+                                </span>
+                                <span className="question-tree-stem">{q.stem}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {!lockedIn && (
+              <div className="sidebar-section">
+                <button className="sidebar-section-header" onClick={() => setLockedInMenuOpen((o) => !o)}>
+                  <span>Locked in mode</span>
+                  <span aria-hidden="true">{lockedInMenuOpen ? '−' : '+'}</span>
+                </button>
+                {lockedInMenuOpen && (
+                  <div className="sidebar-section-body">
+                    <p className="muted small">
+                      Full-screen focus session with a timer. Exiting early needs a long password.
+                    </p>
+                    <div className="segmented">
+                      {LOCKED_IN_DURATIONS.map((d) => (
+                        <button
+                          key={d}
+                          className={lockedInDuration === d ? 'active' : ''}
+                          onClick={() => setLockedInDuration(d)}
+                        >
+                          {d}m
+                        </button>
+                      ))}
+                    </div>
+                    <button className="primary small" onClick={startLockedIn}>Start locked-in session</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <div className="panel quiz-panel">
@@ -332,7 +608,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
               <button className="primary" onClick={handleNext}>Next question</button>
             )}
 
-            <button className="link" onClick={onExit}>Exit quiz</button>
+            {!lockedIn && <button className="link" onClick={onExit}>Exit quiz</button>}
           </div>
         )}
 
@@ -340,7 +616,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
           <div>
             <h2>Quiz complete!</h2>
             <p>You've mastered every topic in "{deck.name}" — nice work.</p>
-            <button className="primary" onClick={onExit}>Back to decks</button>
+            {!lockedIn && <button className="primary" onClick={onExit}>Back to decks</button>}
           </div>
         )}
       </div>

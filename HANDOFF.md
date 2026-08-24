@@ -210,6 +210,48 @@ availability/naming changes fast and deprecates without much warning.
   If asked to "make sure nothing broke," that means actually running/testing it, not
   assuming from a code read.
 
+## Questions/quiz feature batch (2026-08-23)
+
+Added five features to `QuizView.jsx` in one pass, requested together:
+
+- **Shuffle vs. slide order**: a "setup" phase (new `phase === 'setup'` step, shown before
+  generation starts when there's no saved quiz state for the deck) lets the user pick slide
+  order vs. shuffled topic order, and easy vs. hard difficulty, before hitting "Start quiz".
+  Preference persists in `localStorage` (`medflash:quizPrefs`). `initQuizState(topics,
+  {shuffle})` in `quizEngine.js` shuffles `state.order`; `addTopicToState` (see below)
+  respects it for topics that arrive later.
+- **Background generation**: `QuizView.generate()` no longer waits for every topic's SSE
+  event before letting the user start — as soon as the FIRST topic arrives, it builds quiz
+  state from what's collected so far and flips to `phase: 'ready'`. Remaining topics keep
+  streaming in and get folded into the live state via `addTopicToState()` (new export in
+  `quizEngine.js`), including reviving the session out of `'complete'` if the user finishes
+  everything currently loaded before more arrives. Uses a `phaseRef` (not the `phase` state
+  directly) inside the SSE callback to avoid stale-closure bugs — the callback lives for the
+  whole `generate()` call, so plain `phase` from render-time state would be stale.
+- **Sidebar minimizer**: `.quiz-sidebar` has a `sidebarMinimized` toggle that collapses it to
+  a 56px icon rail (just correct/wrong counts), independent of the existing per-section
+  −/+ collapse toggles (which already existed for Flashcards/Questions individually).
+- **Locked-in mode**: full-screen (`requestFullscreen()`) timed session (30/60/90 min) with a
+  countdown bar and password-gated early exit. Exit password is the literal string
+  `ABCDEFGHIJKLMNOPQRSTUVWXYZ1324`, hardcoded in `QuizView.jsx` as
+  `LOCKED_IN_EXIT_PASSWORD` — client-side only, not a real security boundary, just friction
+  against casually bailing on a focus session. Natural timer expiry exits without the
+  password. Deliberately does NOT intercept browser back/Esc/nav-sidebar clicks — scoped to
+  just the quiz's own exit button, since trapping a user against the browser itself would be
+  a bad idea for what's explicitly a self-imposed focus tool, not a real lockout.
+- **Easy/hard difficulty**: `buildQuizPrompt(topicName, cards, difficulty)` in
+  `server/src/quiz.js` now branches its style section — easy asks for direct vocab/definition/
+  recall questions (no clinical vignettes), hard is the original 2nd/3rd-order clinical-vignette
+  prompt. Threaded through `/api/generate-quiz`'s body (`{ cards, difficulty }`) and
+  `generateQuizStream(cards, difficulty, onEvent)` in `quizApi.js`. Verified both branches
+  live against Gemini — easy produces recall questions, hard produces vignettes, as intended.
+- **Verification note**: quiz engine logic (shuffle, background topic merge, revival from
+  'complete') was verified with a standalone Node script exercising the real
+  `quizEngine.js` functions directly — not through the browser, since `QuizView` only
+  renders inside the authenticated Dashboard and no test login was available this session.
+  The setup screen, sidebar minimizer, and locked-in mode UI have NOT been visually verified
+  live — worth a look next time someone's signed in.
+
 ## Design system (2026-08-23)
 
 - Installed the official Anthropic `frontend-design` skill locally at

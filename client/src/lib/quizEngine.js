@@ -20,32 +20,67 @@ function isValidQuestion(q) {
   );
 }
 
-export function initQuizState(topicsWithQuestions) {
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function buildTopicEntry(name, questions) {
+  const valid = (questions || []).filter(isValidQuestion);
+  if (valid.length === 0) return null;
+  const sorted = [...valid].sort((a, b) => (a.difficulty || 0) - (b.difficulty || 0));
+  return {
+    name,
+    questions: sorted,
+    correctFlags: sorted.map(() => false),
+    // Per-question attempt history — this is what backs the question-bank sidebar and
+    // the right/wrong stats, on top of correctFlags which only drives mastery/picking.
+    stats: sorted.map(() => ({ attempts: 0, correct: 0, wrong: 0 })),
+    qCursor: 0, // index into `questions` of the one to present next
+    mastered: false,
+    attempts: 0,
+    wrongInARow: 0,
+  };
+}
+
+// `shuffle: true` randomizes topic order (independent of slide order) instead of following
+// the order topics were generated in, which itself follows slide order.
+export function initQuizState(topicsWithQuestions, { shuffle = false } = {}) {
   const topics = {};
-  const order = [];
+  let order = [];
 
   for (const { name, questions } of topicsWithQuestions) {
-    const valid = (questions || []).filter(isValidQuestion);
-    if (valid.length === 0) continue;
-
-    const sorted = [...valid].sort((a, b) => (a.difficulty || 0) - (b.difficulty || 0));
-
-    topics[name] = {
-      name,
-      questions: sorted,
-      correctFlags: sorted.map(() => false),
-      // Per-question attempt history — this is what backs the question-bank sidebar and
-      // the right/wrong stats, on top of correctFlags which only drives mastery/picking.
-      stats: sorted.map(() => ({ attempts: 0, correct: 0, wrong: 0 })),
-      qCursor: 0, // index into `questions` of the one to present next
-      mastered: false,
-      attempts: 0,
-      wrongInARow: 0,
-    };
+    const entry = buildTopicEntry(name, questions);
+    if (!entry) continue;
+    topics[name] = entry;
     order.push(name);
   }
 
-  return { topics, order, cursor: 0, complete: order.length === 0 };
+  if (shuffle) order = shuffleArray(order);
+
+  return { topics, order, cursor: 0, complete: order.length === 0, shuffle: !!shuffle };
+}
+
+// Merges a topic that finished generating AFTER the quiz session already started (background
+// generation) into a live state object, mutating it in place. New topics join the rotation —
+// appended in order, or spliced in at a random remaining position when shuffle mode is on, so
+// they don't all cluster at the very end of the session.
+export function addTopicToState(state, name, questions) {
+  const entry = buildTopicEntry(name, questions);
+  if (!entry || state.topics[name]) return;
+  state.topics[name] = entry;
+
+  if (state.shuffle && state.order.length > 0) {
+    const insertAt = 1 + Math.floor(Math.random() * state.order.length);
+    state.order.splice(insertAt, 0, name);
+  } else {
+    state.order.push(name);
+  }
+  state.complete = false;
 }
 
 function shuffleOptions(question) {

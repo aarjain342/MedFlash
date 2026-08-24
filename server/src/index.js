@@ -141,6 +141,7 @@ app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, uplo
 
 app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, async (req, res) => {
   const cards = req.body?.cards;
+  const difficulty = req.body?.difficulty === 'easy' ? 'easy' : 'hard';
   if (!Array.isArray(cards) || cards.length === 0) {
     return res.status(400).json({ error: 'No deck cards provided' });
   }
@@ -175,7 +176,7 @@ app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, async 
   try {
     await runWithConcurrency(topics, TOPIC_CONCURRENCY, async (topic) => {
       const raw = await generateWithFallback(providerChain, {
-        buildPrompt: () => buildQuizPrompt(topic.name, topic.cards),
+        buildPrompt: () => buildQuizPrompt(topic.name, topic.cards, difficulty),
       });
       const questions = sanitizeQuestions(parseJsonArray(raw));
       if (questions.length === 0) throw new Error('Model returned no valid questions for this topic');

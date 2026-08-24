@@ -96,7 +96,25 @@ C. Hematopoietic stem cells
 D. Mesenchymal stem cells
 E. Tendon stem cells`;
 
-export function buildQuizPrompt(topicName, cards) {
+const DIFFICULTY_SECTIONS = {
+  hard: `STYLE AND DIFFICULTY — read carefully:
+Below are five example questions showing the exact tone, structure, and reasoning depth to write in. These are style references ONLY — do not reuse their content, subject matter, or answer choices. Write entirely new questions grounded in the topic material above, matching this style:
+
+"""
+${STYLE_EXAMPLES}
+"""
+
+Notice what these examples have in common: every one of them is 2nd-order (apply a concept to a new situation) or 3rd-order (integrate multiple concepts, reason through a mechanism, or predict a consequence) — none of them is a bare definition or "what is X" recall question. Match that. Every question you write must require the student to apply, connect, or reason through the material, never just recite it back. Use a clinical vignette (a brief patient scenario with relevant history/exam/labs) wherever the topic allows one; where a pure vignette doesn't fit (e.g. a mechanism or lab-bench scenario like example #3), use an applied scenario instead — but never a bare recall question.
+
+Write exactly 3 questions on this topic, in increasing difficulty on a 1-5 scale (e.g. roughly 2, 3, 5) — all three are 2nd/3rd-order as described above, never bare recall, but the first should require a single reasoning step from the material to the answer while the last should integrate multiple concepts or work through a multi-step clinical vignette (the kind that trips up strong students). Each of the 3 must test a genuinely different angle of the material (different fact, different scenario, different distractor set) — never near-duplicates of each other.`,
+  easy: `STYLE AND DIFFICULTY — read carefully:
+This is EASY mode: the student is still learning the basics — vocabulary, definitions, core facts, and the overall shape of the material — not clinical application yet. Write straightforward 1st-order questions: "what is X," "which of the following describes X," "which term matches this definition," matching terms to functions, identifying the correct step in a sequence, etc. Do NOT write clinical vignettes, patient scenarios, or multi-concept integration — that's a different mode. Every question should be answerable directly from a single fact or definition in the material below, without needing to apply it to a new situation.
+
+Write exactly 3 questions on this topic, in increasing difficulty on a 1-5 scale (e.g. roughly 1, 2, 3) — all three stay basic/recall-level as described above, but the first should be the most direct (near-verbatim definition/fact recall) while the last can require connecting two related basic facts (e.g. "which of these is NOT true about X" or ordering steps in a process). Each of the 3 must test a genuinely different fact or term — never near-duplicates of each other.`,
+};
+
+export function buildQuizPrompt(topicName, cards, difficulty = 'hard') {
+  const mode = difficulty === 'easy' ? 'easy' : 'hard';
   const source = cards
     .slice(0, MAX_CARDS_PER_TOPIC_PROMPT)
     .map((c, i) => `${i + 1}. Q: ${c.question}\n   A: ${c.answer}`)
@@ -109,16 +127,7 @@ Their flashcards for this topic:
 ${source}
 """
 
-STYLE AND DIFFICULTY — read carefully:
-Below are five example questions showing the exact tone, structure, and reasoning depth to write in. These are style references ONLY — do not reuse their content, subject matter, or answer choices. Write entirely new questions grounded in the topic material above, matching this style:
-
-"""
-${STYLE_EXAMPLES}
-"""
-
-Notice what these examples have in common: every one of them is 2nd-order (apply a concept to a new situation) or 3rd-order (integrate multiple concepts, reason through a mechanism, or predict a consequence) — none of them is a bare definition or "what is X" recall question. Match that. Every question you write must require the student to apply, connect, or reason through the material, never just recite it back. Use a clinical vignette (a brief patient scenario with relevant history/exam/labs) wherever the topic allows one; where a pure vignette doesn't fit (e.g. a mechanism or lab-bench scenario like example #3), use an applied scenario instead — but never a bare recall question.
-
-Write exactly 3 questions on this topic, in increasing difficulty on a 1-5 scale (e.g. roughly 2, 3, 5) — all three are 2nd/3rd-order as described above, never bare recall, but the first should require a single reasoning step from the material to the answer while the last should integrate multiple concepts or work through a multi-step clinical vignette (the kind that trips up strong students). Each of the 3 must test a genuinely different angle of the material (different fact, different scenario, different distractor set) — never near-duplicates of each other.
+${DIFFICULTY_SECTIONS[mode]}
 
 Each question needs exactly 5 answer options (A-E), only one correct, with 4 plausible distractors reflecting real classic exam confusions — not obviously wrong choices.
 
