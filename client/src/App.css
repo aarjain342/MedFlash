@@ -1640,10 +1640,15 @@ button.danger {
 
 .home-chat-panel.expanded {
   position: fixed;
-  inset: 5vh 8vw;
-  height: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Sized to a comfortable reading width/height rather than stretching to fill the
+     viewport — filling it left a huge dead gap between the intro text and the input box
+     whenever there weren't many messages yet. */
+  width: min(720px, 92vw);
+  height: min(680px, 88vh);
   max-width: none;
-  width: auto;
   z-index: 200;
   box-shadow: 0 24px 64px -12px rgba(18, 20, 26, 0.35);
 }

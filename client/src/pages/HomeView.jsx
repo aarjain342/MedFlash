@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import StatsSummary from '../components/StatsSummary';
 import StreakCalendar from '../components/StreakCalendar';
 import ChatPanel from '../components/ChatPanel';
@@ -83,6 +84,21 @@ function RandomCardWidget({ decks }) {
 export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
   const [chatExpanded, setChatExpanded] = useState(false);
 
+  const chatBlock = (
+    <div className={`panel home-chat-panel ${chatExpanded ? 'expanded' : ''}`}>
+      <div className="home-chat-panel-header">
+        <div>
+          <h2>Ask MedFlash</h2>
+          <p className="muted">A study assistant for quick medical questions — not a substitute for real coursework.</p>
+        </div>
+        <button className="ghost small chat-expand-toggle" onClick={() => setChatExpanded((e) => !e)}>
+          {chatExpanded ? 'Back' : 'Expand'}
+        </button>
+      </div>
+      <ChatPanel />
+    </div>
+  );
+
   return (
     <div className="home-grid">
       <div className="home-grid-main">
@@ -99,19 +115,21 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
         <StreakCalendar />
       </div>
 
-      {chatExpanded && <div className="chat-overlay-backdrop" onClick={() => setChatExpanded(false)} />}
-      <div className={`panel home-chat-panel ${chatExpanded ? 'expanded' : ''}`}>
-        <div className="home-chat-panel-header">
-          <div>
-            <h2>Ask MedFlash</h2>
-            <p className="muted">A study assistant for quick medical questions — not a substitute for real coursework.</p>
-          </div>
-          <button className="ghost small chat-expand-toggle" onClick={() => setChatExpanded((e) => !e)}>
-            {chatExpanded ? 'Back' : 'Expand'}
-          </button>
-        </div>
-        <ChatPanel />
-      </div>
+      {chatExpanded
+        ? createPortal(
+            // Portalled straight to <body> — an ancestor (.home-grid, via the .stagger-in
+            // load animation) ends up with a persistent `transform` after its animation
+            // finishes, which creates a new containing block for position:fixed
+            // descendants. That silently made the "fullscreen" backdrop/panel fixed
+            // relative to the grid's box instead of the real viewport. A portal sidesteps
+            // that ancestor chain entirely, same as any dialog needs to.
+            <>
+              <div className="chat-overlay-backdrop" onClick={() => setChatExpanded(false)} />
+              {chatBlock}
+            </>,
+            document.body
+          )
+        : chatBlock}
 
       <div className="home-widget-row">
         <DueTodayWidget decks={decks} onStudy={onStudy} />
