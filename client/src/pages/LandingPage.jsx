@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Landing.css';
 
@@ -15,6 +16,193 @@ function ClockIcon() {
       <circle cx="12" cy="12" r="9" stroke="#12141a" strokeWidth="1.6" />
       <path d="M12 7v5l3.5 2" stroke="#12141a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+const DEMO_CARD = {
+  topic: 'Fertilization',
+  question: 'What triggers the block to polyspermy?',
+  answer:
+    "Sperm–oocyte fusion triggers cortical granule exocytosis, which hardens the zona pellucida and stops any further sperm from getting in.",
+};
+
+const DEMO_QUESTION = {
+  stem:
+    "A 24-year-old woman undergoes IVF. Twelve hours after sperm injection, the embryologist notes the oocyte has not extruded a second polar body and no pronuclei have formed. Which of the following best explains this?",
+  options: [
+    'Failure of cortical granule exocytosis',
+    'Failure of sperm–oocyte membrane fusion',
+    'Premature zona pellucida hardening before fertilization',
+    'Arrest in metaphase I instead of metaphase II',
+    'Loss of maternal centrioles',
+  ],
+  correctIndex: 1,
+  explanation:
+    "Sperm–oocyte fusion is what releases the oocyte from its metaphase II arrest, letting it complete meiosis II (extruding the second polar body) and form pronuclei. Without fusion, that whole cascade never fires — cortical granule release and zona hardening are downstream of fusion, not the cause of this failure.",
+};
+
+// Auto-plays upload → generating → ready once on mount, then leaves the card fully
+// interactive (flip on click) — deliberately doesn't loop indefinitely so it doesn't yank
+// control away from someone mid-interaction. "Replay" re-triggers it on demand.
+function LiveDemoSection() {
+  const [phase, setPhase] = useState('upload'); // upload | generating | ready
+  const [progress, setProgress] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [showExportNote, setShowExportNote] = useState(false);
+  const timers = useRef([]);
+
+  function clearTimers() {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  }
+
+  function play() {
+    clearTimers();
+    setFlipped(false);
+    setShowExportNote(false);
+    setProgress(0);
+    setPhase('upload');
+
+    timers.current.push(
+      setTimeout(() => {
+        setPhase('generating');
+        const start = Date.now();
+        const duration = 1600;
+        const tick = () => {
+          const pct = Math.min(100, Math.round(((Date.now() - start) / duration) * 100));
+          setProgress(pct);
+          if (pct < 100) {
+            timers.current.push(setTimeout(tick, 60));
+          } else {
+            timers.current.push(setTimeout(() => setPhase('ready'), 250));
+          }
+        };
+        tick();
+      }, 1400)
+    );
+  }
+
+  useEffect(() => {
+    play();
+    return clearTimers;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <section className="demo-section">
+      <div className="feature-section-header">
+        <span className="eyebrow">See it work</span>
+        <h2>From lecture slide to flashcard</h2>
+      </div>
+
+      <div className="demo-stage">
+        {phase === 'upload' && (
+          <div className="demo-panel demo-upload">
+            <div className="demo-file-chip">
+              <span className="demo-file-icon" aria-hidden="true">📄</span>
+              <span>embryology-lecture.pdf</span>
+            </div>
+            <p className="muted small">Uploading…</p>
+          </div>
+        )}
+
+        {phase === 'generating' && (
+          <div className="demo-panel demo-generating">
+            <p className="muted small">Generating flashcards from your slides…</p>
+            <div className="progress-bar demo-progress-bar">
+              <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        )}
+
+        {phase === 'ready' && (
+          <div className="demo-ready">
+            <button
+              type="button"
+              className={`demo-flashcard ${flipped ? 'flipped' : ''}`}
+              onClick={() => setFlipped((f) => !f)}
+            >
+              <span className="demo-flashcard-topic">{DEMO_CARD.topic}</span>
+              <span className="demo-flashcard-label">{flipped ? 'Answer' : 'Question'}</span>
+              <span className="demo-flashcard-text">{flipped ? DEMO_CARD.answer : DEMO_CARD.question}</span>
+              <span className="muted small">Click to {flipped ? 'flip back' : 'reveal answer'}</span>
+            </button>
+
+            <div className="demo-actions">
+              <div className="demo-export-wrap">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setShowExportNote(true)}
+                  onBlur={() => setShowExportNote(false)}
+                >
+                  Export to Anki
+                </button>
+                {showExportNote && (
+                  <span className="demo-export-note">Just a preview here — sign up to export for real.</span>
+                )}
+              </div>
+              <button type="button" className="link small" onClick={play}>
+                Replay
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DifficultyDots({ tier }) {
+  return (
+    <span className="difficulty-dots" title={`Difficulty ${tier} / 5`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <i key={n} className={n <= tier ? 'dot filled' : 'dot'} />
+      ))}
+    </span>
+  );
+}
+
+function ExampleQuizSection() {
+  const [selected, setSelected] = useState(null);
+
+  return (
+    <section className="demo-section">
+      <div className="feature-section-header">
+        <span className="eyebrow">Then quiz yourself</span>
+        <h2>Board-style questions, generated from that same deck</h2>
+      </div>
+
+      <div className="demo-quiz-panel">
+        <div className="demo-quiz-header">
+          <span className="quiz-topic-tag">Fertilization</span>
+          <DifficultyDots tier={4} />
+        </div>
+        <p className="demo-quiz-stem">{DEMO_QUESTION.stem}</p>
+        <div className="demo-quiz-options">
+          {DEMO_QUESTION.options.map((opt, i) => {
+            let cls = 'quiz-option';
+            if (selected != null) {
+              if (i === DEMO_QUESTION.correctIndex) cls += ' correct';
+              else if (i === selected) cls += ' incorrect';
+            }
+            return (
+              <button key={i} className={cls} disabled={selected != null} onClick={() => setSelected(i)}>
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+        {selected != null && (
+          <div className={`quiz-feedback ${selected === DEMO_QUESTION.correctIndex ? 'correct' : 'incorrect'}`}>
+            <p className="quiz-feedback-verdict">
+              {selected === DEMO_QUESTION.correctIndex ? 'Correct!' : "Not quite."}
+            </p>
+            <p>{DEMO_QUESTION.explanation}</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -93,6 +281,9 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <LiveDemoSection />
+      <ExampleQuizSection />
 
       <section id="features" className="feature-section-wrap">
         <div className="feature-section-header">
