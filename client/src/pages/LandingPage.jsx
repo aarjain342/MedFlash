@@ -82,14 +82,34 @@ function LiveDemoSection() {
     );
   }
 
+  const sectionRef = useRef(null);
+  const hasPlayedRef = useRef(false);
+
+  // Only starts once the section actually scrolls into view, not on page load — otherwise
+  // it plays out entirely off-screen while someone's still reading the hero above it.
   useEffect(() => {
-    play();
-    return clearTimers;
+    const node = sectionRef.current;
+    if (!node) return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !hasPlayedRef.current) {
+          hasPlayedRef.current = true;
+          play();
+        }
+      },
+      { threshold: 0.4 }
+    );
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      clearTimers();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <section className="demo-section">
+    <section className="demo-section" ref={sectionRef}>
       <div className="feature-section-header">
         <span className="eyebrow">See it work</span>
         <h2>From lecture slide to flashcard</h2>
