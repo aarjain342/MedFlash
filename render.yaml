@@ -21,3 +21,5 @@ services:
         sync: false
       - key: RATE_LIMIT_EXEMPT_EMAILS
         sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://medflash.pro,https://www.medflash.pro,https://med-flash-gamma.vercel.app,http://localhost:5173
