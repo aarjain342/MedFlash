@@ -94,18 +94,48 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="features" className="feature-section">
-        <div className="feature-card">
-          <h3>Slide by slide</h3>
-          <p className="muted">Every topic gets covered, even the ones just briefly mentioned — nothing skipped.</p>
+      <section id="features" className="feature-section-wrap">
+        <div className="feature-section-header">
+          <span className="eyebrow">Features</span>
+          <h2>Everything you need to actually learn it</h2>
         </div>
-        <div className="feature-card">
-          <h3>Actually explained</h3>
-          <p className="muted">Cards rewrite the slide in plain language, with tables and memory tricks where they help.</p>
-        </div>
-        <div className="feature-card">
-          <h3>Export to Anki</h3>
-          <p className="muted">One click gets you a real .apkg — cards, tables, and slide images included.</p>
+        <div className="feature-section">
+          <div className="feature-card">
+            <h3>Any format, one pipeline</h3>
+            <p className="muted">Upload a PDF, PowerPoint, or Word doc — MedFlash reads the text (and slide images for PDFs) section by section.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Slide by slide</h3>
+            <p className="muted">Every topic gets covered, even the ones just briefly mentioned — nothing skipped.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Actually explained</h3>
+            <p className="muted">Cards rewrite the slide in plain, approachable language instead of parroting it back at you.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Tables &amp; memory tricks</h3>
+            <p className="muted">Naturally tabular content becomes an actual table, and a mnemonic gets added — but only when one really fits.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Adaptive USMLE-style quiz</h3>
+            <p className="muted">Board-style clinical vignette questions generated straight from your own deck, getting harder as you master each topic.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Answer while it keeps generating</h3>
+            <p className="muted">No waiting for the whole quiz to build — new questions stream in behind the scenes while you work through what's ready.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Study your way</h3>
+            <p className="muted">Slide order or shuffled, easy vocab or hard clinical application, jump to any question — your call.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Locked-in focus sessions</h3>
+            <p className="muted">Full-screen, timed study blocks with real friction against bailing out early.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Export to Anki</h3>
+            <p className="muted">One click gets you a real .apkg — cards, tables, and slide images included.</p>
+          </div>
         </div>
       </section>
 
