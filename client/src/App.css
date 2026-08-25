@@ -688,7 +688,11 @@ button.danger {
 
 .flashcard {
   perspective: 1200px;
-  height: 420px;
+  /* Was a flat 420px, which clipped any card with a real table/long answer into a tiny
+     scrollable window. Grows with the viewport instead, with overflow-y: auto on each
+     face (below) as a fallback only for genuinely oversized content. */
+  height: min(72vh, 640px);
+  min-height: 320px;
   margin: 24px 0;
   cursor: pointer;
 }
