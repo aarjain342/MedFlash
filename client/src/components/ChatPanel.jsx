@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { sendChatMessage } from '../lib/chatApi';
 
-export default function ChatPanel() {
-  const [messages, setMessages] = useState([]); // [{ role, content }]
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
+// Conversation state is owned by the parent (HomeView) rather than local to this
+// component — it needs to survive this component unmounting/remounting, which happens
+// when the "Expand" toggle switches between rendering inline vs. through a portal (React
+// treats those as structurally different trees at that slot, so it doesn't preserve state
+// across the switch on its own).
+export default function ChatPanel({ messages, setMessages, input, setInput, sending, setSending, error, setError }) {
   const listRef = useRef(null);
 
   async function handleSend() {

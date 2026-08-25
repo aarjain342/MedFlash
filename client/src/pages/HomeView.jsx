@@ -84,6 +84,12 @@ function RandomCardWidget({ decks }) {
 export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
   const [chatExpanded, setChatExpanded] = useState(false);
 
+  // Owned here, not inside ChatPanel — see the comment in ChatPanel.jsx for why.
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState('');
+
   const chatBlock = (
     <div className={`panel home-chat-panel ${chatExpanded ? 'expanded' : ''}`}>
       <div className="home-chat-panel-header">
@@ -95,7 +101,16 @@ export default function HomeView({ userLabel, decks, onNavigate, onStudy }) {
           {chatExpanded ? 'Back' : 'Expand'}
         </button>
       </div>
-      <ChatPanel />
+      <ChatPanel
+        messages={chatMessages}
+        setMessages={setChatMessages}
+        input={chatInput}
+        setInput={setChatInput}
+        sending={chatSending}
+        setSending={setChatSending}
+        error={chatError}
+        setError={setChatError}
+      />
     </div>
   );
 
