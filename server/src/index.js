@@ -7,9 +7,13 @@ import { openSource } from './documentSource.js';
 import { runWithConcurrency } from './concurrency.js';
 import { requireAuth } from './auth.js';
 import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './rateLimit.js';
+import { proGenerationLimiter, proChatLimiter } from './planLimit.js';
 import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
+import { stripe, billingConfigured } from './stripeClient.js';
+import { adminConfigured } from './supabaseAdmin.js';
+import { handleWebhookEvent, createCheckoutSession, createPortalSession, getBillingStatus } from './billing.js';
 
 const app = express();
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
@@ -36,6 +40,32 @@ app.disable('x-powered-by');
 // Render terminates TLS at its proxy, so without this req.ip is the proxy's address and
 // the rate limiter's IP fallback would lump every client into one bucket.
 app.set('trust proxy', 1);
+
+// Stripe's webhook signature covers the exact raw request bytes, so this route needs the
+// unparsed body — it MUST be registered before the blanket express.json() below, since
+// Express matches middleware/routes in registration order and json() would otherwise
+// consume and parse the body first, leaving nothing raw to verify against.
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!billingConfigured) return res.status(503).json({ error: 'Billing is not configured' });
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).json({ error: 'Invalid signature' });
+  }
+
+  try {
+    await handleWebhookEvent(event);
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Webhook handler error:', err);
+    // 500 so Stripe retries delivery — handlers upsert full state, so redelivery is safe.
+    res.status(500).json({ error: 'Webhook handling failed' });
+  }
+});
+
 app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can carry a lot of card text
 
 const SLIDE_CONCURRENCY = 2;
@@ -82,7 +112,7 @@ Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped l
 
 // rateLimit sits after requireAuth (so it can key on the verified user) but before
 // multer, so a rejected request never buffers a 40MB upload into memory.
-app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, upload.single('pdf'), async (req, res) => {
+app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, proGenerationLimiter, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   let providerChain;
@@ -139,7 +169,7 @@ app.post('/api/generate-stream', requireAuth, generationLimiter.middleware, uplo
   }
 });
 
-app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, async (req, res) => {
+app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, proGenerationLimiter, async (req, res) => {
   const cards = req.body?.cards;
   const difficulty = req.body?.difficulty === 'easy' ? 'easy' : 'hard';
   if (!Array.isArray(cards) || cards.length === 0) {
@@ -199,7 +229,7 @@ app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, async 
   }
 });
 
-app.post('/api/chat', requireAuth, chatLimiter.middleware, async (req, res) => {
+app.post('/api/chat', requireAuth, chatLimiter.middleware, proChatLimiter, async (req, res) => {
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
   if (!message) return res.status(400).json({ error: 'No message provided' });
 
@@ -222,8 +252,41 @@ app.post('/api/chat', requireAuth, chatLimiter.middleware, async (req, res) => {
   }
 });
 
+app.post('/api/billing/checkout', requireAuth, async (req, res) => {
+  if (!billingConfigured || !adminConfigured) return res.status(503).json({ error: 'Billing is not configured' });
+  const interval = req.body?.interval === 'annual' ? 'annual' : 'monthly';
+  try {
+    const url = await createCheckoutSession(req.user, interval);
+    res.json({ url });
+  } catch (err) {
+    console.error('Failed to create checkout session:', err);
+    res.status(500).json({ error: 'Could not start checkout' });
+  }
+});
+
+app.post('/api/billing/portal', requireAuth, async (req, res) => {
+  if (!billingConfigured || !adminConfigured) return res.status(503).json({ error: 'Billing is not configured' });
+  try {
+    const url = await createPortalSession(req.user);
+    res.json({ url });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Could not open the billing portal' });
+  }
+});
+
+app.get('/api/billing/status', requireAuth, async (req, res) => {
+  if (!adminConfigured) return res.status(503).json({ error: 'Billing is not configured' });
+  try {
+    const status = await getBillingStatus(req.user.id);
+    res.json(status);
+  } catch (err) {
+    console.error('Failed to load billing status:', err);
+    res.status(500).json({ error: 'Could not load billing status' });
+  }
+});
+
 app.get('/api/health', (_req, res) =>
-  res.json({ ok: true, rateLimit: { ...limitsSummary(), exemptUsers: exemptCount() } })
+  res.json({ ok: true, rateLimit: { ...limitsSummary(), exemptUsers: exemptCount() }, billingConfigured })
 );
 
 // Catch-all error handler. Without this, multer's LIMIT_FILE_SIZE (and anything else

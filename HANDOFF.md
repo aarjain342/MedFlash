@@ -195,9 +195,10 @@ availability/naming changes fast and deprecates without much warning.
 
 ## Known gaps / things the user may ask for next
 
-- No Stripe/billing yet (explicitly deferred — "auth + dashboard shell only" was the chosen
-  scope when this came up).
-- No custom domain yet (blocks proper email deliverability — see Auth section).
+- `medflash.pro`/`www.medflash.pro` are already in `render.yaml`'s `ALLOWED_ORIGINS` — the
+  custom domain is live now (this note is newer than the "no custom domain yet" line that
+  used to be here; email deliverability off gmail.com is still the open item, see Auth
+  section).
 - Decks store slide images inline in Postgres JSONB — fine at current scale, would need
   Supabase Storage if decks get much bigger.
 - The "Decks" page has a placeholder panel ("More coming here") — the user said they want
@@ -278,6 +279,100 @@ Added five features to `QuizView.jsx` in one pass, requested together:
   **Not yet checked**: the actual signed-in dashboard/study/quiz views, since that needs a
   real login and no test credentials were available this session — worth a once-over next
   time someone's signed in, in case a hardcoded color was missed.
+
+## Stripe billing (2026-08-25) — PICK UP HERE NEXT SESSION
+
+Built real Stripe Checkout + Customer Portal + webhook-driven subscriptions, in **test
+mode**, not yet live. Business shape: Free (3 decks, 10 AI generations/mo, 20 chat
+messages/mo) + **MedFlash Pro** ($9/mo or $79/yr, one product, two prices, no trial).
+**Code is done and builds/boots clean.** All secrets are already in local `server/.env`.
+What's left is entirely non-code — do these in order:
+
+1. **Add 6 env vars to Render** (backend service → Environment tab) — not yet confirmed
+   done as of this handoff, ask the user to confirm or just check `/api/health`:
+   | Key | Value |
+   |---|---|
+   | `STRIPE_SECRET_KEY` | same value as local `server/.env` (a `rk_test_...` key — don't ask the user to paste it again, it's already in the local file) |
+   | `STRIPE_WEBHOOK_SECRET` | same value as local `server/.env` (`whsec_...`) |
+   | `SUPABASE_SERVICE_ROLE_KEY` | same value as local `server/.env` |
+   | `STRIPE_PRICE_MONTHLY` | `price_1U8obP2fLr3ZKVo7kcbxdjfJ` |
+   | `STRIPE_PRICE_ANNUAL` | `price_1U8oba2fLr3ZKVo7oLB46Mlo` |
+   | `FRONTEND_URL` | `https://medflash.pro` |
+2. Confirm it landed: `curl https://medflashcards.onrender.com/api/health` should show
+   `billingConfigured: true` (currently `false`). If still `false` after Render redeploys,
+   one of the 6 vars is missing/misnamed — check spelling before anything else.
+3. **Run `supabase/billing.sql`** once in the Supabase SQL Editor (Project → SQL Editor →
+   New query → paste the whole file → Run) — NOT done yet. Deck creation for a real
+   account will error without this, since the code assumes `subscriptions`/
+   `usage_counters` already exist. Deliberately done via the SQL Editor, not the
+   Management API, per the token-exposure incident above.
+4. **Test end-to-end** with Stripe's `4242 4242 4242 4242` test card: sign in on
+   `medflash.pro` → Settings → Upgrade → complete Checkout → confirm you land back on
+   `/dashboard?view=settings` with a success banner → confirm a row appeared in
+   `public.subscriptions` for that user → confirm the Customer Portal button works and
+   shows the active subscription. This full round trip has NOT been verified yet.
+5. Only after step 4 passes: consider rotating the 3 secrets above, since all three were
+   pasted directly into chat during setup (both the restricted key and the webhook secret
+   and the service-role key) — see the token-exposure policy elsewhere in this doc. Not
+   urgent since they're test-mode keys, but before going live, generate fresh live-mode
+   equivalents from scratch rather than reusing/promoting these.
+
+**Gotcha hit while wiring this up, in case it recurs**: the Stripe org has (at least) two
+test-mode accounts — plain "MedFlash" (`acct_1U8WVYKDNhGfqUBb`) and "MedFlash sandbox"
+(`acct_1U8WVi2fLr3ZKVo7`). The restricted API key and the webhook endpoint were created
+under **sandbox**, but the original Product/Prices had been created under the other
+account. A Stripe API key only sees objects in its own account, so checkout would have
+failed with "No such price" despite everything *looking* configured correctly. Fixed by
+recreating the "MedFlash Pro" product (`prod_V96oi61NXNRi5y`) + both prices in the
+sandbox account to match where the key and webhook actually live, rather than recreating
+the key. **If touching billing again, verify the key's account, the webhook's account,
+and the Price IDs' account all agree** —
+`list_available_accounts_or_orgs` plus checking each object's account via
+`stripe_api_read`/`stripe_api_search` (e.g. `GetWebhookEndpoints`) is how this was caught.
+The Stripe MCP tools (`mcp__stripe__*`) need a fresh `/mcp` auth + new session to become
+available — they don't appear in a session that was already running when Stripe was
+connected.
+
+Until steps 1–3 above are done, `/api/health` reports `billingConfigured: false` and
+every `/api/billing/*` route 503s — the rest of the app (deck generation, quiz, chat) is
+completely unaffected, since `planLimit.js`'s middleware no-ops whenever
+`adminConfigured` is false.
+
+**Architecture notes for anyone touching this next:**
+- Deck-count cap (3 free) is enforced by a Postgres trigger, NOT the Express backend —
+  deck writes go straight from `client/src/lib/db.js` to Supabase, bypassing the server
+  entirely. The trigger has a specific gotcha fix: it short-circuits on
+  `exists(select 1 from decks where id = new.id)` before counting, because Postgres fires
+  `BEFORE INSERT` triggers on every row of an `upsert()` (including ones that end up being
+  updates) *before* conflict resolution — without that check, a user at the cap would get
+  incorrectly blocked from studying/editing a deck they already own, not just from
+  creating new ones.
+- AI-generation/chat caps (`server/src/planLimit.js`) are a separate, new layer from
+  `server/src/rateLimit.js`'s existing hourly/daily abuse-prevention limiter — that one is
+  unchanged and still runs first on the same routes. Plan-limit checks **fail open** on any
+  error (Supabase hiccup, etc.) — consistent with this app's existing tolerance for soft
+  failures (e.g. `auth.js` disabling itself when unconfigured) — so a billing outage
+  degrades to "unlimited for everyone," not "generation broken for everyone."
+- Webhook → user mapping goes through `metadata.user_id` (set on both the Checkout
+  Session's `client_reference_id` and its `subscription_data.metadata`), not a
+  customer-ID lookup chain — avoids any event-ordering dependency between
+  `checkout.session.completed` and the `customer.subscription.*` events.
+- The webhook route (`POST /api/billing/webhook`) is registered in `index.js` *before*
+  the global `express.json()` call, with its own `express.raw(...)` — required for Stripe
+  signature verification to see the exact original bytes. Don't move it after that line.
+- Checkout success/cancel and the Portal's return URL all land on
+  `/dashboard?view=settings` — `Dashboard.jsx` reads `?view=settings` on mount to default
+  `activeView` there instead of `home`; `SettingsView.jsx` reads and then strips
+  `?checkout=success|cancelled` for a one-time banner.
+- Live-mode rollout (once test mode is verified end-to-end): create the same Product + 2
+  Prices in live mode via the Stripe MCP tools, user creates a live-mode RAK + live-mode
+  webhook the same way, swap the 4 Stripe-related Render env vars to live values. No code
+  changes needed for the switch.
+- Not yet verified live (no test-mode keys were available this session, and the user
+  deferred setup to a follow-up): the actual checkout → webhook → subscription-row →
+  portal round trip, and the 402/deck-cap error messages actually rendering in the
+  browser. Worth a real pass with Stripe's `4242 4242 4242 4242` test card before
+  considering this done.
 
 ## Working style notes for whoever picks this up
 

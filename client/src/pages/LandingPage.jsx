@@ -173,6 +173,82 @@ function LiveDemoSection() {
   );
 }
 
+const FREE_PLAN_FEATURES = ['3 decks', '10 AI generations / month', '20 chat messages / month'];
+const PRO_PLAN_FEATURES = [
+  'Unlimited decks',
+  'Unlimited AI flashcard & quiz generation',
+  'Unlimited chat assistant',
+];
+
+function PricingSection() {
+  const [interval, setInterval_] = useState('monthly');
+
+  return (
+    <section id="pricing" className="feature-section-wrap">
+      <div className="feature-section-header">
+        <span className="eyebrow">Pricing</span>
+        <h2>Free to try, cheap to keep</h2>
+      </div>
+
+      <div className="pricing-toggle" role="group" aria-label="Billing interval">
+        <button
+          type="button"
+          className={interval === 'monthly' ? 'active' : ''}
+          onClick={() => setInterval_('monthly')}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          className={interval === 'annual' ? 'active' : ''}
+          onClick={() => setInterval_('annual')}
+        >
+          Annual
+        </button>
+      </div>
+
+      <div className="pricing-grid">
+        <div className="pricing-card">
+          <h3>Free</h3>
+          <p className="pricing-price">$0</p>
+          <ul className="pricing-features">
+            {FREE_PLAN_FEATURES.map((f) => (
+              <li key={f}>
+                <span className="pricing-check">
+                  <CheckIcon />
+                </span>
+                {f}
+              </li>
+            ))}
+          </ul>
+          <Link to="/signup" className="pricing-cta pricing-cta-outline">Get started free</Link>
+        </div>
+
+        <div className="pricing-card featured">
+          <span className="pricing-badge">MedFlash Pro</span>
+          <h3>Pro</h3>
+          <p className="pricing-price">
+            ${interval === 'monthly' ? '9' : '79'}
+            <span className="muted small">/{interval === 'monthly' ? 'mo' : 'yr'}</span>
+          </p>
+          <ul className="pricing-features">
+            {PRO_PLAN_FEATURES.map((f) => (
+              <li key={f}>
+                <span className="pricing-check">
+                  <CheckIcon />
+                </span>
+                {f}
+              </li>
+            ))}
+          </ul>
+          <Link to="/signup" className="pill-button pricing-cta">Get started</Link>
+          <p className="muted small">Upgrade any time from Settings after signing up.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DifficultyDots({ tier }) {
   return (
     <span className="difficulty-dots" title={`Difficulty ${tier} / 5`}>
@@ -349,6 +425,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <PricingSection />
 
       <footer className="landing-footer">
         <span className="muted small">© {new Date().getFullYear()} MedFlash</span>

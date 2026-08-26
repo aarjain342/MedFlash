@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AppShell from '../components/AppShell';
 import StudyView from '../components/StudyView';
 import QuizView from '../components/QuizView';
@@ -13,11 +14,16 @@ import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
 
 export default function Dashboard() {
+  const [searchParams] = useSearchParams();
   const [decks, setDecks] = useState([]);
   const [decksLoading, setDecksLoading] = useState(true);
   const [decksError, setDecksError] = useState(null);
   const [busyDeckId, setBusyDeckId] = useState(null);
-  const [activeView, setActiveView] = useState('home'); // home | decks | flashcards | questions | settings
+  // Defaults to 'settings' when redirected back from Stripe Checkout/the billing portal
+  // (?view=settings) so the checkout success/cancelled banner is actually visible.
+  const [activeView, setActiveView] = useState(
+    searchParams.get('view') === 'settings' ? 'settings' : 'home'
+  ); // home | decks | flashcards | questions | settings
   const [studyingDeck, setStudyingDeck] = useState(null);
   const [quizzingDeck, setQuizzingDeck] = useState(null);
   const { user, signOut } = useAuth();

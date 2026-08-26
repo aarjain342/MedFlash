@@ -23,3 +23,15 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         value: https://medflash.pro,https://www.medflash.pro,https://med-flash-gamma.vercel.app,http://localhost:5173
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_ANNUAL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://medflash.pro
