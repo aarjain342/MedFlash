@@ -153,15 +153,14 @@ availability/naming changes fast and deprecates without much warning.
      the UI an updated array — so saving a tiny 18KB deck could still fail if ANY other deck
      in the account was large enough to blow the reload past the statement timeout. Fixed
      by not reloading at all — the caller already has the deck it just saved (or the id it
-     just deleted); `Dashboard.jsx` now merges into local state directly. **Still open**:
-     the initial `loadDecks()` call on page mount has the identical shape of problem (selects
-     `cards` for every deck) and can still 500/timeout on mount if the account's decks are
-     collectively large enough — saw this happen in a live console check during this
-     investigation. The real fix is not fetching full `cards` for the list view at all
-     (separate lightweight list query + fetch cards only when a deck is opened), which
-     doesn't need a schema change, just touches `DecksView`/`FlashcardsView`/`QuestionsView`/
-     `DeckList` (they all read `deck.cards.length` and due-counts directly) — worth doing
-     next if initial-load failures keep showing up.
+     just deleted); `Dashboard.jsx` now merges into local state directly. The initial
+     `loadDecks()` call on page mount had the identical shape of problem (selected `cards`
+     for every deck) — **fixed 2026-08-24 in commit `d42165b`**: `db.js` now has
+     `loadDecksMetaRemote()`, a lightweight query (`id, name, source_file, created_at`, no
+     `cards`) that paints the list almost instantly; `loadDecksRemote()` (full `cards`,
+     including images) then streams in behind it in the background. `cards: null` is the
+     "still loading" sentinel that `FlashcardsView`/`QuestionsView`/`DeckList` read instead
+     of blocking on it. No schema change was needed.
    - **Confirmed happening in production, multiple accounts** (2026-08-23, same day):
      user reported "sign out and back in, decks are gone." Checked `public.decks` directly
      — data was never lost (rows all present, correctly scoped by `user_id`), so this was
@@ -172,8 +171,10 @@ availability/naming changes fast and deprecates without much warning.
      genuinely a lot to pull through PostgREST on every single sign-in. Shipped an interim
      fix: retry-with-backoff on `loadDecksRemote` (same pattern as the write-path retry)
      plus a visible error banner + Retry button in `Dashboard.jsx` instead of silently
-     rendering empty. **This is a mitigation, not the fix** — the real fix is still the
-     lightweight-list-query refactor described above; asked the user whether to do it next.
+     rendering empty. **Superseded 2026-08-24** by the `loadDecksMetaRemote()` fast-path
+     fix described directly above — the retry/banner mitigation is still in place as a
+     fallback, but the metadata-only query means the slow/timeout-prone full fetch no
+     longer blocks the initial page paint at all.
 
 ## Auth / accounts
 
