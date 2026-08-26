@@ -207,10 +207,23 @@ availability/naming changes fast and deprecates without much warning.
 - PPTX/DOCX uploads never get slide images (no image-based flashcards for those formats,
   text-only) — only PDF gets vision-based cards, since there's no lightweight way to
   render PPTX/DOCX to images without a heavy dependency (LibreOffice, etc.).
-- No automated tests exist anywhere in this repo — every verification in this project was
-  done manually (curl against live endpoints, browser automation, or local dev servers).
-  If asked to "make sure nothing broke," that means actually running/testing it, not
-  assuming from a code read.
+- ~~No automated tests exist anywhere in this repo~~ — fixed 2026-08-26, see the
+  billing/security testing section below. Still true that most verification in this
+  project is manual (curl against live endpoints, browser automation, local dev servers)
+  — the new test suite covers a handful of high-risk pure functions, not the app broadly.
+  If asked to "make sure nothing broke," that still means actually running/testing it.
+- **Potential decompression-bomb DoS in PPTX/DOCX upload handling** — found during the
+  2026-08-26 security review, not fixed. `server/src/officeDocs.js` calls fflate's
+  `unzipSync()` on an uploaded PPTX with no cap on the decompressed size — only the
+  *uploaded* file is capped (multer's 40MB `MAX_UPLOAD_BYTES` in `index.js`). A small,
+  highly-compressed archive could decompress to far more than 40MB in memory on the
+  single-process Render backend, which is exactly the "one bad request takes down the
+  whole server for everyone" failure shape this project has been bitten by before (see
+  incident #1). Not confirmed exploitable in practice (didn't want to actually construct
+  and upload a zip bomb against production without asking first) — flagging as a real gap
+  worth closing, likely via checking each zip entry's declared uncompressed size before/
+  during extraction and aborting past some threshold, or a streaming unzip with a cap.
+  DOCX (via `mammoth`) wasn't checked for the same class of issue and may have it too.
 
 ## Questions/quiz feature batch (2026-08-23)
 
@@ -384,10 +397,110 @@ no-ops whenever `adminConfigured` is false.
   `managed_payments: { enabled: false }`, which works fine in live mode too), user creates
   a live-mode RAK + live-mode webhook the same way, swap the 4 Stripe-related Render env
   vars to live values. No code changes needed for the switch beyond what's already shipped.
-- Still not verified: the 402/deck-cap error messages actually rendering in the browser
-  when a Free-plan user hits a limit (checkout/webhook/portal round trip IS verified, see
-  above). Worth a pass — e.g. temporarily lower a limit or exhaust one with a free test
-  account and confirm the UI shows something sensible, not just a raw 402.
+- 402/deck-cap/expiry/security testing: **done, 2026-08-26** — see the dated section
+  directly below for the full pass (limits, expiry lifecycle, cancellation display, and a
+  security review that found one real vulnerability).
+
+## Billing/security deep-testing pass (2026-08-26)
+
+Ran a full pass at the user's request: plan limits, subscription expiry, the Customer
+Portal cancellation flow, a Home-dashboard plan indicator, and a security review. Used
+three throwaway `@mailinator.com` test accounts (all deleted afterward) plus direct
+service-role queries against the same production Supabase project (local dev server
+points at prod DB — see `server/.env`). **Two fixes are prepared but NOT yet live** —
+both need one SQL statement run in the Supabase SQL Editor first; see "Two migrations
+pending" below, **security one first**.
+
+**What was tested and confirmed working, live, with real code (no mocks):**
+- Free-plan limits — deck cap (3), AI generations (10/mo), chat messages (20/mo) all
+  correctly block at the limit, both at the API level (402 with a clear message,
+  Postgres trigger with a clear message for decks) and visibly in the browser UI (the
+  friendly message renders, not a raw error). Editing/studying an already-owned deck at
+  the cap still works (the specific gotcha fix in `enforce_deck_limit` holds).
+- Subscription expiry — seeded a user into an active Pro state, then invoked the real
+  `handleWebhookEvent()` (server/src/billing.js) with a realistic
+  `customer.subscription.deleted` payload (what Stripe actually sends when a canceled
+  subscription's period genuinely ends). Confirmed the user was correctly downgraded to
+  Free and all three usage limits re-applied immediately. Real Stripe Test Clocks
+  (which would exercise actual Stripe-side webhook delivery too, not just our handler)
+  were NOT usable — our restricted API key lacks the `billing_clock_write` permission,
+  and widening a live secret's permissions wasn't something to do without asking; ask
+  the user first if this level of rigor is wanted later.
+- Declined card (`4000000000000002`) — Stripe Checkout shows its own inline decline
+  message and lets the user retry, no crash; confirmed no subscription/Pro access was
+  granted for that attempt (`status: 'none'` in the DB afterward).
+- Auth enforcement — every protected endpoint (`/api/billing/*`, `/api/chat`,
+  `/api/generate-quiz`) correctly 401s with no token or a garbage token.
+- RLS isolation — a signed-in user cannot read another user's `decks`/`subscriptions`/
+  `usage_counters` rows even with an unfiltered `select=*` or an explicit filter for
+  someone else's `user_id`; cannot self-grant Pro via a direct `PATCH` on their own
+  `subscriptions` row (no `update` RLS policy exists, exactly as documented in
+  `billing.sql`); cannot insert a `decks` row under someone else's `user_id` (blocked by
+  RLS with a clear `42501` error).
+- Webhook signature verification correctly rejects a forged/unsigned POST (`400 Invalid
+  signature`) — tested against local (same code/secret as prod, avoided POSTing
+  fabricated payloads at the real production endpoint).
+- CORS — a disallowed origin gets no `Access-Control-Allow-Origin` header at all;
+  `https://medflash.pro` gets the header echoed back specifically, never a wildcard.
+- No `dangerouslySetInnerHTML`/`innerHTML=` anywhere in the client — flashcard/quiz/chat
+  content (ultimately LLM output over user-uploaded documents, so not fully trusted) is
+  always rendered through React's auto-escaping, no stored-XSS surface.
+- Client bundle (`client/dist/assets/*.js`) has no leaked secrets — only the public
+  Supabase anon key and URL, as expected.
+- Rate limiter (`server/src/rateLimit.js`) keys correctly on the authenticated user id
+  (not spoofable), has a periodic cleanup so the in-memory map can't grow unbounded.
+
+**Fixed and shipped already (pushed, live):**
+- Dashboard now shows a "Free plan" / "MedFlash Pro" badge in the Home greeting panel
+  (`client/src/pages/HomeView.jsx`'s `PlanBadge`), not just Settings — click it to jump to
+  Settings. Silently hides in guest mode or if billing status fails to load, rather than
+  showing an error on the home page.
+- `server/`, `client/` both now have a real (if minimal) test suite —
+  `node --test src/**/*.test.js` via `npm test` in each — covering the exact functions
+  behind two past production incidents (`groupCardsByTopic`/`sanitizeQuestions`/
+  `sanitizeCards`, the crash-payload and malformed-LLM-output classes of bug) plus the
+  quiz engine's retry/mastery state machine. Zero new dependencies (Node's built-in
+  runner). 40 tests, all passing as of this commit.
+
+**Two migrations pending — run these in the Supabase SQL Editor, SECURITY ONE FIRST:**
+
+1. **`supabase/security_fix_increment_usage.sql` — run this first, it's urgent.** Found a
+   real, confirmed-exploitable vulnerability: `public.increment_usage` (the RPC that backs
+   the free-plan generation/chat counters) is `security definer` with no check that the
+   caller owns `p_user_id`. Any signed-in user can call it directly
+   (`POST /rest/v1/rpc/increment_usage`) with an **arbitrary** `p_user_id` — confirmed live
+   by using one throwaway test account's own JWT to drive a second throwaway account's
+   `chat_count` from 0 straight to its monthly limit, silently locking it out. This is a
+   real denial-of-service surface against any user's free-tier quota. The fix is a pure
+   permissions change (`revoke execute ... from authenticated, anon`) — no application code
+   changes needed, and the server's own legitimate calls (via the service-role client)
+   are completely unaffected, since service_role bypasses function grants entirely. The
+   same file also hardens `enforce_deck_limit()` (the deck-cap trigger) against a related,
+   much lower-severity issue: it runs *before* RLS validates the insert, so it currently
+   leaks a tiny amount of information about an arbitrary `user_id` (whether they have 3+
+   decks and aren't Pro) via which of two error messages comes back, even though the
+   actual write stays correctly blocked by RLS either way. See the file's comments for the
+   full writeup. **Also worth knowing**: while confirming this bug was real (and not just
+   an RLS-scoping false-positive from a throwaway account), a real production account —
+   `aadyajain822@gmail.com`, one of the two rate-limit-exempt family accounts — had its
+   `chat_count` nudged 0 → 1 for this month. Reverting that single-count touch was
+   correctly blocked by the coding agent's own safety guardrails (a direct write to a real
+   user's data), so it was left as-is rather than forced through — impact is negligible (1
+   of a 20/month limit, self-corrects next month, irrelevant if that account is ever Pro)
+   but flagging it for visibility.
+2. `supabase/billing_cancel_at_period_end.sql` — fixes a real but lower-severity bug:
+   Settings kept showing "Renews `<date>`" even after a user cancels via the Customer
+   Portal, because Portal cancellations default to cancel-at-period-end (stays `active`
+   until the period genuinely ends, not immediate) and the app never tracked Stripe's
+   `cancel_at_period_end` flag at all. Reproduced live with a real Stripe subscription +
+   real cancellation. The code fix (webhook write + `getBillingStatus` + Settings copy —
+   "Cancels `<date>` — you'll keep Pro access until then") is **committed locally
+   (`dd7387b`) but deliberately NOT pushed** — pushing before the column exists would make
+   the webhook's `subscriptions` upsert fail *atomically* on every `customer.subscription.
+   created/updated` event (silently, webhook still 200s — see `server/src/index.js`'s
+   webhook route, it doesn't distinguish), meaning `status`/`plan`/`current_period_end`
+   would all stop updating too, not just the new field. **Run the SQL, then
+   `git push origin main`** (nothing else needed, Render auto-deploys).
 
 ## Working style notes for whoever picks this up
 
