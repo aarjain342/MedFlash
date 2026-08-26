@@ -285,8 +285,9 @@ Added five features to `QuizView.jsx` in one pass, requested together:
 Built real Stripe Checkout + Customer Portal + webhook-driven subscriptions, in **test
 mode**, not yet live. Business shape: Free (3 decks, 10 AI generations/mo, 20 chat
 messages/mo) + **MedFlash Pro** ($9/mo or $79/yr, one product, two prices, no trial).
-**Code is done and builds/boots clean.** All secrets are already in local `server/.env`.
-What's left is entirely non-code — do these in order:
+**Code is done, builds/boots clean, and is committed + pushed** (`852bf0d`) — Render will
+auto-deploy it. All secrets are already in local `server/.env`. What's left is entirely
+non-code — do these in order:
 
 1. **Add 6 env vars to Render** (backend service → Environment tab) — not yet confirmed
    done as of this handoff, ask the user to confirm or just check `/api/health`:
