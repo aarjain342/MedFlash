@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --experimental-test-module-mocks --test src/**/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
