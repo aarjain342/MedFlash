@@ -172,6 +172,10 @@ export async function createCheckoutSession(user, interval) {
     line_items: [{ price: priceId, quantity: 1 }],
     subscription_data: { metadata: { user_id: user.id } },
     allow_promotion_codes: true,
+    // Managed Payments is enabled by default on new Stripe accounts and requires a
+    // product tax code we haven't set up (no Stripe Tax integration here) — opt out to
+    // keep the standard Billing + webhook flow this app is built around.
+    managed_payments: { enabled: false },
     success_url: `${frontendUrl}/dashboard?view=settings&checkout=success`,
     cancel_url: `${frontendUrl}/dashboard?view=settings&checkout=cancelled`,
   });
