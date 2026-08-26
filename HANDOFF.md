@@ -403,15 +403,16 @@ no-ops whenever `adminConfigured` is false.
 
 ## Billing/security deep-testing pass (2026-08-26)
 
-Ran a full pass at the user's request: plan limits, subscription expiry, the Customer
-Portal cancellation flow, a Home-dashboard plan indicator, and a security review. Used
-three throwaway `@mailinator.com` test accounts (all deleted afterward) plus direct
-service-role queries against the same production Supabase project (local dev server
-points at prod DB — see `server/.env`). **Two fixes are prepared but NOT yet live** —
-both need one SQL statement run in the Supabase SQL Editor first; see "Two migrations
-pending" below, **security one first**.
+Ran a full pass at the user's request: plan limits, subscription expiry/renewal, the
+Customer Portal cancellation flow, annual billing, a Home-dashboard plan indicator, and a
+security review. Used several throwaway `@mailinator.com` test accounts (all deleted
+afterward) plus direct service-role queries against the same production Supabase project
+(local dev server points at prod DB — see `server/.env`). **One fix is prepared but NOT
+yet live** (the security one — see "One migration pending" below); a second fix was
+shipped, caused a real incident, and was reverted — see "The 'Renews after cancel' fix"
+below before touching that area again.
 
-**What was tested and confirmed working, live, with real code (no mocks):**
+**What was tested and confirmed working, live, with real code (no mocks unless noted):**
 - Free-plan limits — deck cap (3), AI generations (10/mo), chat messages (20/mo) all
   correctly block at the limit, both at the API level (402 with a clear message,
   Postgres trigger with a clear message for decks) and visibly in the browser UI (the
@@ -421,11 +422,23 @@ pending" below, **security one first**.
   `handleWebhookEvent()` (server/src/billing.js) with a realistic
   `customer.subscription.deleted` payload (what Stripe actually sends when a canceled
   subscription's period genuinely ends). Confirmed the user was correctly downgraded to
-  Free and all three usage limits re-applied immediately. Real Stripe Test Clocks
-  (which would exercise actual Stripe-side webhook delivery too, not just our handler)
-  were NOT usable — our restricted API key lacks the `billing_clock_write` permission,
-  and widening a live secret's permissions wasn't something to do without asking; ask
-  the user first if this level of rigor is wanted later.
+  Free and all three usage limits re-applied immediately.
+- Annual billing (`$79/yr`) — a real live checkout end-to-end, confirmed Settings shows
+  "MedFlash Pro (annual)" with the correct renewal date a year out (not just monthly,
+  which is all that had been tested before this).
+- Successful renewal and a declined recurring charge (`past_due`) — added as permanent
+  mocked tests (`server/src/billing.webhook.test.js`, uses a fake Supabase client via
+  `node --experimental-test-module-mocks`, touches no real data) after a live
+  `node -e` script poking real subscription rows to test this got correctly blocked by
+  the coding agent's own safety guardrails. Confirms `handleWebhookEvent` writes the
+  rolled-forward `current_period_end`/`plan` on renewal, and writes `status: 'past_due'`
+  (not `active`) on a declined charge — `isUserPro`/`getBillingStatus` both gate Pro
+  access on `status === 'active' || 'trialing'`, so `past_due` correctly falls through to
+  Free. Real Stripe Test Clocks (which would exercise actual Stripe-side webhook delivery
+  too, not just our handler) were NOT usable for this — our restricted API key lacks the
+  `billing_clock_write` permission, and that can only be granted from the Stripe
+  Dashboard UI (no API for it), not something to do without the user doing it themselves:
+  https://dashboard.stripe.com/b/acct_1U8WVi2fLr3ZKVo7?destination=%2Ftest%2Fapikeys%2Fmk_1U8XJT2fLr3ZKVo7vipt46P6%2Fedit
 - Declined card (`4000000000000002`) — Stripe Checkout shows its own inline decline
   message and lets the user retry, no crash; confirmed no subscription/Pro access was
   granted for that attempt (`status: 'none'` in the DB afterward).
@@ -462,9 +475,9 @@ pending" below, **security one first**.
   quiz engine's retry/mastery state machine. Zero new dependencies (Node's built-in
   runner). 40 tests, all passing as of this commit.
 
-**Two migrations pending — run these in the Supabase SQL Editor, SECURITY ONE FIRST:**
+**One migration pending — run this in the Supabase SQL Editor:**
 
-1. **`supabase/security_fix_increment_usage.sql` — run this first, it's urgent.** Found a
+**`supabase/security_fix_increment_usage.sql` — run this, it's urgent.** Found a
    real, confirmed-exploitable vulnerability: `public.increment_usage` (the RPC that backs
    the free-plan generation/chat counters) is `security definer` with no check that the
    caller owns `p_user_id`. Any signed-in user can call it directly
@@ -488,19 +501,42 @@ pending" below, **security one first**.
    user's data), so it was left as-is rather than forced through — impact is negligible (1
    of a 20/month limit, self-corrects next month, irrelevant if that account is ever Pro)
    but flagging it for visibility.
-2. `supabase/billing_cancel_at_period_end.sql` — fixes a real but lower-severity bug:
-   Settings kept showing "Renews `<date>`" even after a user cancels via the Customer
-   Portal, because Portal cancellations default to cancel-at-period-end (stays `active`
-   until the period genuinely ends, not immediate) and the app never tracked Stripe's
-   `cancel_at_period_end` flag at all. Reproduced live with a real Stripe subscription +
-   real cancellation. The code fix (webhook write + `getBillingStatus` + Settings copy —
-   "Cancels `<date>` — you'll keep Pro access until then") is **committed locally
-   (`dd7387b`) but deliberately NOT pushed** — pushing before the column exists would make
-   the webhook's `subscriptions` upsert fail *atomically* on every `customer.subscription.
-   created/updated` event (silently, webhook still 200s — see `server/src/index.js`'s
-   webhook route, it doesn't distinguish), meaning `status`/`plan`/`current_period_end`
-   would all stop updating too, not just the new field. **Run the SQL, then
-   `git push origin main`** (nothing else needed, Render auto-deploys).
+
+**The "Renews after cancel" fix — reverted, needs to be redone properly. Read this before
+touching it again.** The original fix (webhook write + `getBillingStatus` + Settings
+copy) was committed locally as `dd7387b`, deliberately *not* pushed, with a migration
+file (`supabase/billing_cancel_at_period_end.sql`) waiting for the user to run first —
+same pattern as the security fix above, and it should have been safe.
+
+**It wasn't.** A few minutes later, an unrelated commit (`02f816b`, just a HANDOFF.md
+update + the security-fix SQL file) got pushed with a plain `git push origin main` —
+which pushes the *entire* local branch history, not just the files staged in that commit.
+`dd7387b` was still sitting locally ahead of `origin/main`, so it went out too, silently.
+Render deployed it immediately. Every subsequent `customer.subscription.created/updated`
+webhook then failed its DB write atomically (`Could not find the 'cancel_at_period_end'
+column`) — swallowed internally, so Stripe got a 200 and never retried — meaning
+`status`/`plan`/`current_period_end` all silently stopped updating for **every**
+subscription event, not just the cosmetic field. Caught within the same session (a real
+annual checkout completed on Stripe's side but showed "Free plan" in the app) and fixed
+by immediately reverting (`41572d8`, pushed) rather than rushing the migration through,
+since reverting doesn't depend on anyone's timing. Confirmed working again with a second,
+clean annual checkout afterward.
+
+**The actual lesson, not just this one bug**: `git push` sends the whole branch, so
+"commit locally, don't push, wait for a prerequisite" is not a safe pattern the moment
+*any* other commit needs to go out before the prerequisite is met — the safe version is
+either a separate branch/PR, or genuinely not writing the schema-dependent code at all
+until the migration is confirmed applied.
+
+**To redo this fix properly**: once `cancel_at_period_end boolean not null default false`
+exists on `public.subscriptions` (recreate the migration — it was a one-line `alter table
+... add column if not exists`, deleted along with the revert), re-add: the webhook write
+in `upsertFromSubscription` (`server/src/billing.js`), the field in `getBillingStatus`'s
+return value, and the conditional copy in `SettingsView.jsx`'s `PlanPanel` ("Cancels
+`<date>` — you'll keep Pro access until then" vs "Renews `<date>`"). Verify the column
+exists (e.g. a throwaway `select cancel_at_period_end from subscriptions limit 1`) in the
+same session as writing the code, immediately before pushing — don't trust an earlier
+`AskUserQuestion`-style confirmation from a different point in the conversation.
 
 ## Working style notes for whoever picks this up
 
