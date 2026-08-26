@@ -160,6 +160,7 @@ export default function Dashboard() {
         decks={decks}
         onNavigate={handleNavigate}
         onStudy={handleStudy}
+        guestMode={guestMode}
       />
     );
   }
