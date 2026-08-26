@@ -280,43 +280,55 @@ Added five features to `QuizView.jsx` in one pass, requested together:
   real login and no test credentials were available this session — worth a once-over next
   time someone's signed in, in case a hardcoded color was missed.
 
-## Stripe billing (2026-08-25) — PICK UP HERE NEXT SESSION
+## Stripe billing (2026-08-25, verified end-to-end 2026-08-26)
 
-Built real Stripe Checkout + Customer Portal + webhook-driven subscriptions, in **test
-mode**, not yet live. Business shape: Free (3 decks, 10 AI generations/mo, 20 chat
-messages/mo) + **MedFlash Pro** ($9/mo or $79/yr, one product, two prices, no trial).
-**Code is done, builds/boots clean, and is committed + pushed** (`852bf0d`) — Render will
-auto-deploy it. All secrets are already in local `server/.env`. What's left is entirely
-non-code — do these in order:
+Real Stripe Checkout + Customer Portal + webhook-driven subscriptions, in **test mode**,
+not yet live. Business shape: Free (3 decks, 10 AI generations/mo, 20 chat messages/mo) +
+**MedFlash Pro** ($9/mo or $79/yr, one product, two prices, no trial). **Fully working and
+verified live** — steps 1–4 below are done. Only step 5 (rotate test-mode secrets) and
+live-mode rollout remain, and neither is urgent.
 
-1. **Add 6 env vars to Render** (backend service → Environment tab) — not yet confirmed
-   done as of this handoff, ask the user to confirm or just check `/api/health`:
-   | Key | Value |
-   |---|---|
-   | `STRIPE_SECRET_KEY` | same value as local `server/.env` (a `rk_test_...` key — don't ask the user to paste it again, it's already in the local file) |
-   | `STRIPE_WEBHOOK_SECRET` | same value as local `server/.env` (`whsec_...`) |
-   | `SUPABASE_SERVICE_ROLE_KEY` | same value as local `server/.env` |
-   | `STRIPE_PRICE_MONTHLY` | `price_1U8obP2fLr3ZKVo7kcbxdjfJ` |
-   | `STRIPE_PRICE_ANNUAL` | `price_1U8oba2fLr3ZKVo7oLB46Mlo` |
-   | `FRONTEND_URL` | `https://medflash.pro` |
-2. Confirm it landed: `curl https://medflashcards.onrender.com/api/health` should show
-   `billingConfigured: true` (currently `false`). If still `false` after Render redeploys,
-   one of the 6 vars is missing/misnamed — check spelling before anything else.
-3. **Run `supabase/billing.sql`** once in the Supabase SQL Editor (Project → SQL Editor →
-   New query → paste the whole file → Run) — NOT done yet. Deck creation for a real
-   account will error without this, since the code assumes `subscriptions`/
-   `usage_counters` already exist. Deliberately done via the SQL Editor, not the
-   Management API, per the token-exposure incident above.
-4. **Test end-to-end** with Stripe's `4242 4242 4242 4242` test card: sign in on
-   `medflash.pro` → Settings → Upgrade → complete Checkout → confirm you land back on
-   `/dashboard?view=settings` with a success banner → confirm a row appeared in
-   `public.subscriptions` for that user → confirm the Customer Portal button works and
-   shows the active subscription. This full round trip has NOT been verified yet.
-5. Only after step 4 passes: consider rotating the 3 secrets above, since all three were
-   pasted directly into chat during setup (both the restricted key and the webhook secret
-   and the service-role key) — see the token-exposure policy elsewhere in this doc. Not
-   urgent since they're test-mode keys, but before going live, generate fresh live-mode
-   equivalents from scratch rather than reusing/promoting these.
+1. ✅ **Render env vars** — all 6 confirmed set on the `MedFlashcards` service
+   (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`,
+   `STRIPE_PRICE_ANNUAL`, `SUPABASE_SERVICE_ROLE_KEY`, `FRONTEND_URL`). Note: as of
+   2026-08-26 `SUPABASE_SERVICE_ROLE_KEY` was actually **missing** on Render despite this
+   doc previously saying it was set (`/api/health`'s `billingConfigured` only reflects
+   `STRIPE_SECRET_KEY`, not the Supabase key, so it looked "done" but `/api/billing/*`
+   was 503ing — logs showed `SUPABASE_SERVICE_ROLE_KEY not set — billing routes will
+   respond 503.`). Re-pushed it from local `server/.env`; also re-confirmed
+   `STRIPE_PRICE_MONTHLY`/`STRIPE_PRICE_ANNUAL` were missing and pushed those too. **If
+   billing ever looks half-configured again, don't trust `/api/health` alone — it only
+   checks the Stripe key.**
+2. ✅ Confirmed: `curl https://medflashcards.onrender.com/api/health` shows
+   `billingConfigured: true`.
+3. ✅ `supabase/billing.sql` has been run — `subscriptions`/`usage_counters` tables exist.
+4. ✅ **Full round trip verified live** (2026-08-26, throwaway
+   `medflash-billing-test-0826@mailinator.com` account, cleaned up afterward): signed in on
+   `medflash.pro` → Settings → Upgrade → Stripe Checkout with `4242 4242 4242 4242` →
+   landed back on `/dashboard?view=settings` → Settings showed **MedFlash Pro (monthly)**
+   with a real renewal date, confirming the webhook wrote the `subscriptions` row → Customer
+   Portal (Manage subscription) opened and showed the active sub, card on file, and a paid
+   $9.00 invoice → cancelled the test subscription there too (exercises the
+   `customer.subscription.updated` webhook path). Hit and fixed one real bug along the way,
+   see below.
+5. Still open, not urgent (test-mode keys, no real money involved): rotate
+   `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`SUPABASE_SERVICE_ROLE_KEY` since all three
+   were pasted directly into chat during original setup — see the token-exposure policy
+   elsewhere in this doc. Before going live, generate fresh live-mode equivalents from
+   scratch rather than reusing/promoting these.
+
+**Bug found and fixed during the 2026-08-26 verification pass**: checkout was failing with
+a 500 (`Failed to create checkout session: StripeInvalidRequestError: Invalid
+line_items[0]: the product tax code is missing`). Cause: Stripe's newer **Managed
+Payments** feature is enabled by default on new/sandbox accounts and requires a product
+tax code, which this app never set (no Stripe Tax integration anywhere in the codebase).
+Fixed in `server/src/billing.js`'s `createCheckoutSession` by passing
+`managed_payments: { enabled: false }` on the Checkout Session — opts back out to the
+standard Billing + webhook flow the rest of this integration is built around. Committed as
+`d90effb`, pushed, deployed, and this is the fix that made step 4 above pass. **If
+resurrecting Managed Payments is ever wanted on purpose** (Stripe becomes more involved in
+tax remittance), that's a real product/tax decision, not just a config tweak — needs a
+product tax code set via the Dashboard or API, not just deleting this line.
 
 **Gotcha hit while wiring this up, in case it recurs**: the Stripe org has (at least) two
 test-mode accounts — plain "MedFlash" (`acct_1U8WVYKDNhGfqUBb`) and "MedFlash sandbox"
@@ -334,10 +346,10 @@ The Stripe MCP tools (`mcp__stripe__*`) need a fresh `/mcp` auth + new session t
 available — they don't appear in a session that was already running when Stripe was
 connected.
 
-Until steps 1–3 above are done, `/api/health` reports `billingConfigured: false` and
-every `/api/billing/*` route 503s — the rest of the app (deck generation, quiz, chat) is
-completely unaffected, since `planLimit.js`'s middleware no-ops whenever
-`adminConfigured` is false.
+If billing env vars/SQL are ever incomplete again, `/api/health` reports
+`billingConfigured: false` and every `/api/billing/*` route 503s — the rest of the app
+(deck generation, quiz, chat) is completely unaffected, since `planLimit.js`'s middleware
+no-ops whenever `adminConfigured` is false.
 
 **Architecture notes for anyone touching this next:**
 - Deck-count cap (3 free) is enforced by a Postgres trigger, NOT the Express backend —
@@ -365,15 +377,16 @@ completely unaffected, since `planLimit.js`'s middleware no-ops whenever
   `/dashboard?view=settings` — `Dashboard.jsx` reads `?view=settings` on mount to default
   `activeView` there instead of `home`; `SettingsView.jsx` reads and then strips
   `?checkout=success|cancelled` for a one-time banner.
-- Live-mode rollout (once test mode is verified end-to-end): create the same Product + 2
-  Prices in live mode via the Stripe MCP tools, user creates a live-mode RAK + live-mode
-  webhook the same way, swap the 4 Stripe-related Render env vars to live values. No code
-  changes needed for the switch.
-- Not yet verified live (no test-mode keys were available this session, and the user
-  deferred setup to a follow-up): the actual checkout → webhook → subscription-row →
-  portal round trip, and the 402/deck-cap error messages actually rendering in the
-  browser. Worth a real pass with Stripe's `4242 4242 4242 4242` test card before
-  considering this done.
+- Live-mode rollout (test mode is now fully verified end-to-end, see above — this is the
+  next real step): create the same Product + 2 Prices in live mode via the Stripe MCP
+  tools **including a product tax code this time** (or explicitly keep
+  `managed_payments: { enabled: false }`, which works fine in live mode too), user creates
+  a live-mode RAK + live-mode webhook the same way, swap the 4 Stripe-related Render env
+  vars to live values. No code changes needed for the switch beyond what's already shipped.
+- Still not verified: the 402/deck-cap error messages actually rendering in the browser
+  when a Free-plan user hits a limit (checkout/webhook/portal round trip IS verified, see
+  above). Worth a pass — e.g. temporarily lower a limit or exhaust one with a free test
+  account and confirm the UI shows something sensible, not just a raw 402.
 
 ## Working style notes for whoever picks this up
 
