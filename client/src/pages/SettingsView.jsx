@@ -68,11 +68,7 @@ function PlanPanel({ checkoutBanner }) {
             <strong>MedFlash Pro</strong> ({status.plan === 'annual' ? 'annual' : 'monthly'})
           </p>
           {status.currentPeriodEnd && (
-            <p className="muted small">
-              {status.cancelAtPeriodEnd
-                ? `Cancels ${new Date(status.currentPeriodEnd).toLocaleDateString()} — you'll keep Pro access until then`
-                : `Renews ${new Date(status.currentPeriodEnd).toLocaleDateString()}`}
-            </p>
+            <p className="muted small">Renews {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>
           )}
           <button className="ghost" onClick={handleManage} disabled={busy}>
             Manage subscription

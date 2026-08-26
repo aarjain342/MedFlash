@@ -57,10 +57,6 @@ async function upsertFromSubscription(subscription, fallbackUserId) {
     plan,
     status: subscription.status,
     current_period_end: periodEndSeconds ? new Date(periodEndSeconds * 1000).toISOString() : null,
-    // Portal cancellations default to "stays active until period end", not immediate —
-    // status stays 'active' the whole time, so this is the only signal that tells the
-    // client "won't renew" apart from "will renew" (see getBillingStatus below).
-    cancel_at_period_end: !!subscription.cancel_at_period_end,
     updated_at: new Date().toISOString(),
   });
   if (error) console.error('Failed to upsert subscription row:', error);
@@ -115,7 +111,7 @@ export async function getBillingStatus(userId) {
   const [{ data: sub }, { data: usage }, { count: deckCount }] = await Promise.all([
     supabaseAdmin
       .from('subscriptions')
-      .select('plan, status, current_period_end, cancel_at_period_end')
+      .select('plan, status, current_period_end')
       .eq('user_id', userId)
       .maybeSingle(),
     supabaseAdmin
@@ -133,7 +129,6 @@ export async function getBillingStatus(userId) {
     plan: isPro ? sub.plan : 'free',
     status: sub?.status || 'none',
     currentPeriodEnd: sub?.current_period_end || null,
-    cancelAtPeriodEnd: !!sub?.cancel_at_period_end,
     usage: {
       decks: { used: deckCount || 0, limit: isPro ? null : FREE_LIMITS.decks },
       generations: { used: usage?.generations_count || 0, limit: isPro ? null : FREE_LIMITS.generations },
