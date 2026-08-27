@@ -13,7 +13,6 @@ function UsageLine({ label, used, limit }) {
 function PlanPanel({ checkoutBanner }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
-  const [interval, setInterval_] = useState('monthly');
   const [busy, setBusy] = useState(false);
 
   function fetchStatus() {
@@ -30,7 +29,7 @@ function PlanPanel({ checkoutBanner }) {
     setBusy(true);
     setError('');
     try {
-      const url = await startCheckout(interval);
+      const url = await startCheckout();
       window.location.href = url;
     } catch (err) {
       setError(err.message || 'Could not start checkout');
@@ -65,7 +64,7 @@ function PlanPanel({ checkoutBanner }) {
       ) : isPro ? (
         <>
           <p>
-            <strong>MedFlash Pro</strong> ({status.plan === 'annual' ? 'annual' : 'monthly'})
+            <strong>MedFlash Pro</strong>
           </p>
           {status.currentPeriodEnd && (
             <p className="muted small">Renews {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>
@@ -81,26 +80,7 @@ function PlanPanel({ checkoutBanner }) {
           <UsageLine label="AI generations this month" used={status.usage.generations.used} limit={status.usage.generations.limit} />
           <UsageLine label="Chat messages this month" used={status.usage.chat.used} limit={status.usage.chat.limit} />
 
-          <div className="settings-row">
-            <label>
-              <input
-                type="radio"
-                name="interval"
-                checked={interval === 'monthly'}
-                onChange={() => setInterval_('monthly')}
-              />{' '}
-              $9/month
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="interval"
-                checked={interval === 'annual'}
-                onChange={() => setInterval_('annual')}
-              />{' '}
-              $79/year
-            </label>
-          </div>
+          <p className="muted small">MedFlash Pro — $15/month</p>
 
           <button className="primary" onClick={handleUpgrade} disabled={busy}>
             Upgrade to MedFlash Pro

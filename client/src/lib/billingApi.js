@@ -31,8 +31,8 @@ export async function getBillingStatus() {
   return data;
 }
 
-export async function startCheckout(interval) {
-  const { url } = await postJson('/api/billing/checkout', { interval });
+export async function startCheckout() {
+  const { url } = await postJson('/api/billing/checkout');
   return url;
 }
 

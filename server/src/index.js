@@ -254,9 +254,8 @@ app.post('/api/chat', requireAuth, chatLimiter.middleware, proChatLimiter, async
 
 app.post('/api/billing/checkout', requireAuth, async (req, res) => {
   if (!billingConfigured || !adminConfigured) return res.status(503).json({ error: 'Billing is not configured' });
-  const interval = req.body?.interval === 'annual' ? 'annual' : 'monthly';
   try {
-    const url = await createCheckoutSession(req.user, interval);
+    const url = await createCheckoutSession(req.user);
     res.json({ url });
   } catch (err) {
     console.error('Failed to create checkout session:', err);

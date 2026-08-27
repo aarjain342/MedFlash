@@ -181,30 +181,11 @@ const PRO_PLAN_FEATURES = [
 ];
 
 function PricingSection() {
-  const [interval, setInterval_] = useState('monthly');
-
   return (
     <section id="pricing" className="feature-section-wrap">
       <div className="feature-section-header">
         <span className="eyebrow">Pricing</span>
         <h2>Free to try, cheap to keep</h2>
-      </div>
-
-      <div className="pricing-toggle" role="group" aria-label="Billing interval">
-        <button
-          type="button"
-          className={interval === 'monthly' ? 'active' : ''}
-          onClick={() => setInterval_('monthly')}
-        >
-          Monthly
-        </button>
-        <button
-          type="button"
-          className={interval === 'annual' ? 'active' : ''}
-          onClick={() => setInterval_('annual')}
-        >
-          Annual
-        </button>
       </div>
 
       <div className="pricing-grid">
@@ -228,8 +209,8 @@ function PricingSection() {
           <span className="pricing-badge">MedFlash Pro</span>
           <h3>Pro</h3>
           <p className="pricing-price">
-            ${interval === 'monthly' ? '9' : '79'}
-            <span className="muted small">/{interval === 'monthly' ? 'mo' : 'yr'}</span>
+            $15
+            <span className="muted small">/mo</span>
           </p>
           <ul className="pricing-features">
             {PRO_PLAN_FEATURES.map((f) => (

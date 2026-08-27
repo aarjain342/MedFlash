@@ -4,13 +4,11 @@ import { supabaseAdmin } from './supabaseAdmin.js';
 const FREE_LIMITS = { decks: 3, generations: 10, chat: 20 };
 
 function priceIdToPlan(priceId) {
-  if (priceId === process.env.STRIPE_PRICE_MONTHLY) return 'monthly';
-  if (priceId === process.env.STRIPE_PRICE_ANNUAL) return 'annual';
-  return null;
+  return priceId === process.env.STRIPE_PRICE_MONTHLY ? 'monthly' : null;
 }
 
-export function planPriceId(interval) {
-  return interval === 'annual' ? process.env.STRIPE_PRICE_ANNUAL : process.env.STRIPE_PRICE_MONTHLY;
+export function planPriceId() {
+  return process.env.STRIPE_PRICE_MONTHLY;
 }
 
 // Reuses a Stripe customer already on file for this user (so repeat checkouts, or a
@@ -158,9 +156,9 @@ export async function checkAndIncrementUsage(userId, kind, limit) {
   return data === true;
 }
 
-export async function createCheckoutSession(user, interval) {
-  const priceId = planPriceId(interval);
-  if (!priceId) throw new Error(`No price configured for interval "${interval}"`);
+export async function createCheckoutSession(user) {
+  const priceId = planPriceId();
+  if (!priceId) throw new Error('No price configured for MedFlash Pro');
 
   const customerId = await getOrCreateCustomerId(user);
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';

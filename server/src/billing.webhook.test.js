@@ -46,9 +46,9 @@ describe('handleWebhookEvent', () => {
   test('successful renewal (customer.subscription.updated, active) writes the rolled-forward period end and plan', async (t) => {
     const calls = [];
     const { handleWebhookEvent } = await loadBillingWithFakeAdmin(t, calls);
-    process.env.STRIPE_PRICE_ANNUAL = 'price_annual_test';
+    process.env.STRIPE_PRICE_MONTHLY = 'price_monthly_test_renewal';
 
-    const nextYear = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+    const nextMonth = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
     await handleWebhookEvent({
       type: 'customer.subscription.updated',
       data: {
@@ -57,7 +57,7 @@ describe('handleWebhookEvent', () => {
           customer: 'cus_renew',
           status: 'active',
           metadata: { user_id: USER_ID },
-          items: { data: [{ price: { id: 'price_annual_test' }, current_period_end: nextYear }] },
+          items: { data: [{ price: { id: 'price_monthly_test_renewal' }, current_period_end: nextMonth }] },
         },
       },
     });
@@ -65,8 +65,8 @@ describe('handleWebhookEvent', () => {
     const write = calls.find((c) => c.table === 'subscriptions' && c.op === 'upsert');
     assert.ok(write, 'expected a subscriptions upsert');
     assert.equal(write.row.status, 'active');
-    assert.equal(write.row.plan, 'annual');
-    assert.equal(write.row.current_period_end, new Date(nextYear * 1000).toISOString());
+    assert.equal(write.row.plan, 'monthly');
+    assert.equal(write.row.current_period_end, new Date(nextMonth * 1000).toISOString());
   });
 
   test('a declined recurring charge (customer.subscription.updated, past_due) writes status past_due, not active', async (t) => {
