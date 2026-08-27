@@ -71,6 +71,10 @@ function DueTodayWidget({ decks, onStudy }) {
 
 function RandomCardWidget({ decks }) {
   const loadedDecks = decks.filter((d) => d.cards && d.cards.length > 0);
+  // Same "still fetching full card data in the background" signal DueTodayWidget uses —
+  // without this, the whole panel used to just not exist in the DOM (returning null)
+  // until the fetch finished, then pop in out of nowhere instead of showing it's loading.
+  const stillLoading = decks.length > 0 && decks.some((d) => !d.cards);
   const [seed, setSeed] = useState(0);
   const [flipped, setFlipped] = useState(false);
 
@@ -82,7 +86,9 @@ function RandomCardWidget({ decks }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedDecks.length, seed]);
 
-  if (!pick) return null;
+  // Genuinely nothing to show and nothing coming (no decks, or none with any cards) —
+  // hide the whole panel, same as before.
+  if (!pick && !stillLoading) return null;
 
   return (
     <div className="panel random-card-panel">
@@ -90,6 +96,7 @@ function RandomCardWidget({ decks }) {
         <h2>Quick recall</h2>
         <button
           className="ghost small"
+          disabled={!pick}
           onClick={() => {
             setSeed((s) => s + 1);
             setFlipped(false);
@@ -98,12 +105,21 @@ function RandomCardWidget({ decks }) {
           Shuffle
         </button>
       </div>
-      <p className="muted small">A random card from "{pick.deck.name}" — see if it's stuck.</p>
-      <button className="random-card-flip" onClick={() => setFlipped((f) => !f)}>
-        <span className="random-card-label">{flipped ? 'Answer' : 'Question'}</span>
-        <span className="random-card-text">{flipped ? pick.card.answer : pick.card.question}</span>
-        <span className="muted small random-card-hint">Click to {flipped ? 'flip back' : 'reveal answer'}</span>
-      </button>
+      {!pick ? (
+        <div className="decks-loading">
+          <span className="spinner" aria-hidden="true" />
+          <span className="muted">Loading…</span>
+        </div>
+      ) : (
+        <>
+          <p className="muted small">A random card from "{pick.deck.name}" — see if it's stuck.</p>
+          <button className="random-card-flip" onClick={() => setFlipped((f) => !f)}>
+            <span className="random-card-label">{flipped ? 'Answer' : 'Question'}</span>
+            <span className="random-card-text">{flipped ? pick.card.answer : pick.card.question}</span>
+            <span className="muted small random-card-hint">Click to {flipped ? 'flip back' : 'reveal answer'}</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }
