@@ -298,9 +298,10 @@ Added five features to `QuizView.jsx` in one pass, requested together:
 
 Real Stripe Checkout + Customer Portal + webhook-driven subscriptions, in **test mode**,
 not yet live. Business shape: Free (3 decks, 10 AI generations/mo, 20 chat messages/mo) +
-**MedFlash Pro** ($9/mo or $79/yr, one product, two prices, no trial). **Fully working and
-verified live** — steps 1–4 below are done. Only step 5 (rotate test-mode secrets) and
-live-mode rollout remain, and neither is urgent.
+**MedFlash Pro** (originally $9/mo or $79/yr, one product, two prices, no trial —
+**changed 2026-08-26 to a single $15/mo tier, no annual**, see the dated section further
+below). **Fully working and verified live** — steps 1–4 below are done. Only step 5
+(rotate test-mode secrets) and live-mode rollout remain, and neither is urgent.
 
 1. ✅ **Render env vars** — all 6 confirmed set on the `MedFlashcards` service
    (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`,
@@ -537,6 +538,49 @@ return value, and the conditional copy in `SettingsView.jsx`'s `PlanPanel` ("Can
 exists (e.g. a throwaway `select cancel_at_period_end from subscriptions limit 1`) in the
 same session as writing the code, immediately before pushing — don't trust an earlier
 `AskUserQuestion`-style confirmation from a different point in the conversation.
+
+## Pricing changed to $15/mo flat, annual tier dropped (2026-08-26)
+
+User's call, after discussing comparables (Quizlet Plus ~$8/mo, Osmosis/Picmonic
+~$15-20/mo, AMBOSS/UWorld ~$35-50/mo but those sell proprietary content, MedFlash doesn't)
+— $9/mo undervalued the product, and the $79/yr tier added UI/code complexity
+(interval selection, two price IDs) for a tier nobody had actually subscribed to yet.
+
+- Old test-mode prices (`price_1U8obP2fLr3ZKVo7kcbxdjfJ` $9/mo, `price_1U8oba2fLr3ZKVo7oLB46Mlo`
+  $79/yr) deactivated in Stripe, not deleted — Stripe prices are immutable/undeletable by
+  design, only deactivatable. New price: `price_1U8rf92fLr3ZKVo7SNYdfHoS`, $15/mo, same
+  product (`prod_V96oi61NXNRi5y`). `STRIPE_PRICE_MONTHLY` updated on both Render and local
+  `server/.env`; `STRIPE_PRICE_ANNUAL` is no longer read anywhere in code (left unset,
+  harmless either way).
+- Removed all interval/annual plumbing: `createCheckoutSession` (`server/src/billing.js`)
+  and the `/api/billing/checkout` route no longer take an `interval` param;
+  `startCheckout()` (`client/src/lib/billingApi.js`) takes no args; `SettingsView.jsx`'s
+  `PlanPanel` shows a single "$15/month" line instead of a monthly/annual radio pair;
+  `LandingPage.jsx`'s pricing section lost its Monthly/Annual toggle. If a second tier is
+  wanted later, re-adding an `interval`-style param (or a proper multi-tier price map,
+  since a hardcoded single `STRIPE_PRICE_MONTHLY` env var doesn't generalize past one
+  paid tier) is a bigger change than just flipping a price ID.
+- Verified live end-to-end with a real test-mode checkout at the new price
+  ($15.00/month shown correctly in Stripe Checkout, correct amount charged, Settings
+  correctly shows Pro with no stale "(annual)"/"(monthly)" qualifier since there's only
+  one plan now).
+- **Raising this price later**: create a new Price (Stripe prices can't be edited), point
+  new checkouts at it — existing subscribers automatically keep paying their original
+  price unless you deliberately migrate them (Stripe's default, not something to build).
+- **Incident during cleanup, worth knowing about**: while canceling leftover test
+  subscriptions from this session's testing (Stripe's search API doesn't filter by
+  metadata/email at a glance, so it was easy to assume a batch of "active" test-mode
+  subscriptions were all throwaway test accounts), one of them turned out to belong to
+  the user's **own real account** (`aajainlast@gmail.com`) — a test-mode subscription
+  that had already been cancel-requested (status still `active`, cancellation already
+  scheduled for its period end) got canceled immediately instead of at period end. Test
+  mode, so zero real financial impact either way, and it was already on a path to
+  cancellation — but it wasn't verified as test data before being touched, which was the
+  actual mistake (two other subscriptions in the same batch WERE verified by customer
+  email before canceling; this one should have been too, and wasn't, until after the
+  fact). **Lesson**: always resolve a Stripe object's owning customer/email before any
+  bulk cleanup action, even in test mode, even when "probably all test data" seems safe
+  to assume from timestamps/patterns alone.
 
 ## Working style notes for whoever picks this up
 
