@@ -103,7 +103,7 @@ export async function exportDeckToAnki(deck) {
 
   const mediaByPage = new Map();
 
-  for (const card of deck.cards) {
+  deck.cards.forEach((card, index) => {
     let imageTag = '';
     if (card.image) {
       const key = card.page ?? card.image;
@@ -117,12 +117,20 @@ export async function exportDeckToAnki(deck) {
     }
 
     const tags = card.topic ? [slug(card.topic)] : [];
+    // Anki dedupes notes on import by guid. genanki's default guid is a hash of the
+    // field content alone, with no reference to which deck it came from — two cards in
+    // *different* decks with the same question/answer text (easy for repeated med-school
+    // facts) would hash to the same guid, and Anki would silently keep the card in
+    // whichever deck it saw first instead of adding it to both. Scoping the guid to this
+    // deck's own id + the card's position keeps every deck's cards independent.
+    const guid = `${deck.id}:${index}`;
     const note = model.note(
       [card.question, answerToHtml(card.answer), tableToHtml(card.table), card.mnemonic || '', imageTag],
-      tags
+      tags,
+      guid
     );
     ankiDeck.addNote(note);
-  }
+  });
 
   pkg.addDeck(ankiDeck);
   pkg.writeToFile(`${slug(deck.name)}.apkg`);
