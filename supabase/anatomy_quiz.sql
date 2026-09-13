@@ -17,7 +17,12 @@ create table if not exists public.anatomy_decks (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   source_file text,
-  created_at timestamptz not null default now(),
+  -- bigint, not timestamptz: the client sends Date.now() directly (see
+  -- AnatomyUploadPanel.jsx), the same raw-epoch-milliseconds convention the existing
+  -- decks table already uses (rowToDeck/upsertDeckRemote in db.js never parse or format
+  -- this field as a date) — a timestamptz column rejects that value outright ("date/time
+  -- field value out of range").
+  created_at bigint not null,
   -- [{ page, image, labels: [{ id, label, box: [ymin, xmin, ymax, xmax] }] }]
   -- box coordinates are 0-1000 normalized (Gemini's spatial-grounding convention).
   -- image lives once per page (not per label) — see HANDOFF.md's 29.5MB-deck incident.
