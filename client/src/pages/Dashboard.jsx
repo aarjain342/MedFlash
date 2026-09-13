@@ -3,13 +3,24 @@ import { useSearchParams } from 'react-router-dom';
 import AppShell from '../components/AppShell';
 import StudyView from '../components/StudyView';
 import QuizView from '../components/QuizView';
+import AnatomyStudyView from '../components/AnatomyStudyView';
 import ErrorBoundary from '../components/ErrorBoundary';
 import HomeView from './HomeView';
 import DecksView from './DecksView';
 import FlashcardsView from './FlashcardsView';
 import QuestionsView from './QuestionsView';
+import AnatomyView from './AnatomyView';
 import SettingsView from './SettingsView';
-import { loadDecks, loadDecksMeta, upsertDeck, deleteDeck } from '../lib/db';
+import {
+  loadDecks,
+  loadDecksMeta,
+  upsertDeck,
+  deleteDeck,
+  loadAnatomyDecks,
+  loadAnatomyDecksMeta,
+  upsertAnatomyDeck,
+  deleteAnatomyDeck,
+} from '../lib/db';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
 
@@ -23,9 +34,17 @@ export default function Dashboard() {
   // (?view=settings) so the checkout success/cancelled banner is actually visible.
   const [activeView, setActiveView] = useState(
     searchParams.get('view') === 'settings' ? 'settings' : 'home'
-  ); // home | decks | flashcards | questions | settings
+  ); // home | decks | flashcards | questions | anatomy | settings
   const [studyingDeck, setStudyingDeck] = useState(null);
   const [quizzingDeck, setQuizzingDeck] = useState(null);
+  // Anatomy Quiz decks are a separate content type from flashcard decks (image-occlusion
+  // quizzes, not spaced-repetition cards) — kept as their own state slice throughout,
+  // never merged with `decks`.
+  const [anatomyDecks, setAnatomyDecks] = useState([]);
+  const [anatomyDecksLoading, setAnatomyDecksLoading] = useState(true);
+  const [anatomyDecksError, setAnatomyDecksError] = useState(null);
+  const [busyAnatomyDeckId, setBusyAnatomyDeckId] = useState(null);
+  const [studyingAnatomyDeck, setStudyingAnatomyDeck] = useState(null);
   const { user, signOut } = useAuth();
   const guestMode = !supabaseConfigured;
 
@@ -50,14 +69,32 @@ export default function Dashboard() {
       .finally(() => setDecksLoading(false));
   }
 
+  // Same two-stage load, same reasoning, for anatomy decks' `pages` (which embed page
+  // images the same way decks.cards does).
+  function fetchAnatomyDecks() {
+    setAnatomyDecksLoading(true);
+    setAnatomyDecksError(null);
+    loadAnatomyDecksMeta()
+      .then((meta) => {
+        setAnatomyDecks(meta);
+        setAnatomyDecksLoading(false);
+        return loadAnatomyDecks();
+      })
+      .then(setAnatomyDecks)
+      .catch((err) => setAnatomyDecksError(err.message || 'Failed to load your anatomy quizzes'))
+      .finally(() => setAnatomyDecksLoading(false));
+  }
+
   useEffect(() => {
     fetchDecks();
+    fetchAnatomyDecks();
   }, []);
 
   function handleNavigate(view) {
     // Nav clicks always return to a top-level view — leaving an active study/quiz session.
     setStudyingDeck(null);
     setQuizzingDeck(null);
+    setStudyingAnatomyDeck(null);
     setActiveView(view);
   }
 
@@ -97,6 +134,26 @@ export default function Dashboard() {
     }
   }
 
+  function handleStudyAnatomy(deck) {
+    setActiveView('anatomy');
+    setStudyingAnatomyDeck(deck);
+  }
+
+  async function handleAnatomyDeckCreated(deck) {
+    const saved = await upsertAnatomyDeck(deck);
+    setAnatomyDecks((prev) => [saved, ...prev.filter((d) => d.id !== saved.id)]);
+  }
+
+  async function handleDeleteAnatomyDeck(id) {
+    setBusyAnatomyDeckId(id);
+    try {
+      await deleteAnatomyDeck(id);
+      setAnatomyDecks((prev) => prev.filter((d) => d.id !== id));
+    } finally {
+      setBusyAnatomyDeckId(null);
+    }
+  }
+
   let content;
   if (studyingDeck) {
     content = (
@@ -126,6 +183,16 @@ export default function Dashboard() {
         />
       </ErrorBoundary>
     );
+  } else if (studyingAnatomyDeck) {
+    content = (
+      <ErrorBoundary
+        key={studyingAnatomyDeck.id}
+        label="The anatomy quiz hit a problem."
+        onExit={() => setStudyingAnatomyDeck(null)}
+      >
+        <AnatomyStudyView deck={studyingAnatomyDeck} onExit={() => setStudyingAnatomyDeck(null)} />
+      </ErrorBoundary>
+    );
   } else if (activeView === 'flashcards') {
     content = (
       <FlashcardsView
@@ -153,6 +220,17 @@ export default function Dashboard() {
         onDelete={handleDeleteDeck}
       />
     );
+  } else if (activeView === 'anatomy') {
+    content = (
+      <AnatomyView
+        decks={anatomyDecks}
+        decksLoading={anatomyDecksLoading}
+        busyDeckId={busyAnatomyDeckId}
+        onDeckCreated={handleAnatomyDeckCreated}
+        onStudy={handleStudyAnatomy}
+        onDelete={handleDeleteAnatomyDeck}
+      />
+    );
   } else {
     content = (
       <HomeView
@@ -177,6 +255,12 @@ export default function Dashboard() {
         <div className="deck-load-error">
           <span>Couldn't load your decks: {decksError}</span>
           <button className="ghost" onClick={fetchDecks}>Retry</button>
+        </div>
+      )}
+      {anatomyDecksError && (
+        <div className="deck-load-error">
+          <span>Couldn't load your anatomy quizzes: {anatomyDecksError}</span>
+          <button className="ghost" onClick={fetchAnatomyDecks}>Retry</button>
         </div>
       )}
       {content}

@@ -10,6 +10,7 @@ import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './ra
 import { proGenerationLimiter, proChatLimiter } from './planLimit.js';
 import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
+import { buildAnatomyLabelPrompt, sanitizeAnatomyLabels } from './anatomy.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
 import { stripe, billingConfigured } from './stripeClient.js';
 import { adminConfigured } from './supabaseAdmin.js';
@@ -70,6 +71,7 @@ app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can c
 
 const SLIDE_CONCURRENCY = 2;
 const TOPIC_CONCURRENCY = 3;
+const ANATOMY_CONCURRENCY = 2;
 const HEARTBEAT_MS = 15000;
 
 // Render sits behind Cloudflare, which kills a connection after too long with no new
@@ -223,6 +225,73 @@ app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, proGen
     send('done', { totalTopics: topics.length });
   } catch (err) {
     send('fatal-error', { error: err.message || 'Quiz generation failed' });
+  } finally {
+    stopHeartbeat();
+    res.end();
+  }
+});
+
+// Anatomy Quiz: labels on these diagrams are baked into the page's raster image (no
+// separate PDF text layer for them — confirmed by inspecting real sample pages), so this
+// needs a vision call per page rather than the text-first approach /api/generate-stream
+// uses. Same SSE/concurrency shape as the two routes above; charges the same 'generation'
+// usage unit via proGenerationLimiter (once per request, not per page — identical cost
+// shape to a flashcard upload of the same page count).
+app.post('/api/generate-anatomy-stream', requireAuth, generationLimiter.middleware, proGenerationLimiter, upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!/\.pdf$/i.test(req.file.originalname || '')) {
+    return res.status(400).json({ error: 'Anatomy Quiz only supports PDF files.' });
+  }
+
+  let providerChain;
+  let source;
+  try {
+    providerChain = getProviderChain();
+    if (!providerChain.some((p) => p.supportsVision())) {
+      return res.status(400).json({ error: 'Anatomy Quiz needs a vision-capable AI provider (Gemini) configured on the server.' });
+    }
+    source = await openSource(req.file);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Failed to open file' });
+  }
+  const pageCount = source.pageCount;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const stopHeartbeat = startHeartbeat(res);
+
+  send('start', { totalPages: pageCount, providers: providerChain.map((p) => p.name) });
+
+  const pageIndexes = Array.from({ length: pageCount }, (_, i) => i);
+
+  try {
+    await runWithConcurrency(pageIndexes, ANATOMY_CONCURRENCY, async (pageIndex) => {
+      const { imageDataUrl } = source.getPage(pageIndex);
+      if (!imageDataUrl) return { pageIndex, labels: [], imageDataUrl: null };
+
+      const raw = await generateWithFallback(providerChain, {
+        imageDataUrl,
+        buildPrompt: (hasImage) => (hasImage ? buildAnatomyLabelPrompt(pageIndex, pageCount) : null),
+      });
+      const labels = sanitizeAnatomyLabels(parseJsonArray(raw));
+      return { pageIndex, labels, imageDataUrl };
+    }, (index, result, err) => {
+      if (err) {
+        send('page-error', { page: index + 1, totalPages: pageCount, error: err.message });
+      } else if (result.labels.length > 0) {
+        send('page', { page: index + 1, totalPages: pageCount, labels: result.labels, image: result.imageDataUrl });
+      } else {
+        send('page-skipped', { page: index + 1, totalPages: pageCount });
+      }
+    });
+
+    send('done', { totalPages: pageCount });
+  } catch (err) {
+    send('fatal-error', { error: err.message || 'Anatomy label extraction failed' });
   } finally {
     stopHeartbeat();
     res.end();

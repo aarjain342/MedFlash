@@ -780,6 +780,58 @@ button.danger {
   margin-top: 12px;
 }
 
+.occlusion-wrap {
+  position: relative;
+  margin: 16px 0;
+}
+
+.occlusion-image {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.occlusion-box {
+  position: absolute;
+  background: var(--ink);
+  border-radius: 4px;
+}
+
+.occlusion-input {
+  width: 100%;
+  font-size: 15px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  margin-bottom: 12px;
+}
+
+.occlusion-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.occlusion-reveal {
+  text-align: center;
+  margin: 16px 0;
+}
+
+.occlusion-guess {
+  font-size: 17px;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.occlusion-answer {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 16px;
+}
+
 .flashcard-face.front {
   background: var(--surface);
 }

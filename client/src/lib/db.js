@@ -5,9 +5,11 @@ import { supabase, supabaseConfigured } from './supabaseClient';
 // configured, or no session) falls back to IndexedDB — localStorage is too small once
 // slide images are embedded in cards.
 const DB_NAME = 'synapsecards';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DECKS_STORE = 'decks';
 const QUIZZES_STORE = 'quizzes';
+const ANATOMY_DECKS_STORE = 'anatomyDecks';
+const ANATOMY_PROGRESS_STORE = 'anatomyProgress';
 
 async function getUserId() {
   if (!supabaseConfigured) return null;
@@ -29,6 +31,12 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(QUIZZES_STORE)) {
         db.createObjectStore(QUIZZES_STORE, { keyPath: 'deckId' });
+      }
+      if (!db.objectStoreNames.contains(ANATOMY_DECKS_STORE)) {
+        db.createObjectStore(ANATOMY_DECKS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(ANATOMY_PROGRESS_STORE)) {
+        db.createObjectStore(ANATOMY_PROGRESS_STORE, { keyPath: 'deckId' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -97,6 +105,48 @@ async function loadAllQuizStatesLocal() {
     req.onsuccess = () => resolve((req.result || []).map((r) => r.state));
     req.onerror = () => reject(req.error);
   });
+}
+
+// --- IndexedDB (guest mode) — Anatomy Quiz ---
+
+async function loadAnatomyDecksLocal() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ANATOMY_DECKS_STORE, 'readonly');
+    const req = tx.objectStore(ANATOMY_DECKS_STORE).getAll();
+    req.onsuccess = () => {
+      const decks = req.result || [];
+      decks.sort((a, b) => b.createdAt - a.createdAt);
+      resolve(decks);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function upsertAnatomyDeckLocal(deck) {
+  await withStore(ANATOMY_DECKS_STORE, 'readwrite', (store) => store.put(deck));
+  return deck;
+}
+
+async function deleteAnatomyDeckLocal(id) {
+  await withStore(ANATOMY_DECKS_STORE, 'readwrite', (store) => store.delete(id));
+  await withStore(ANATOMY_PROGRESS_STORE, 'readwrite', (store) => store.delete(id));
+}
+
+async function loadAnatomyProgressLocal(deckId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ANATOMY_PROGRESS_STORE, 'readonly');
+    const req = tx.objectStore(ANATOMY_PROGRESS_STORE).get(deckId);
+    req.onsuccess = () => resolve(req.result?.state ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveAnatomyProgressLocal(deckId, state) {
+  await withStore(ANATOMY_PROGRESS_STORE, 'readwrite', (store) =>
+    store.put({ deckId, state, updatedAt: Date.now() })
+  );
 }
 
 // --- Supabase (signed-in) ---
@@ -205,6 +255,86 @@ async function loadAllQuizStatesRemote(userId) {
   return data.map((r) => r.state);
 }
 
+// --- Supabase (signed-in) — Anatomy Quiz ---
+
+function rowToAnatomyDeck(row) {
+  return { id: row.id, name: row.name, sourceFile: row.source_file, createdAt: row.created_at, pages: row.pages };
+}
+
+// Same fast-path-then-fill-in shape as loadDecksMetaRemote/loadDecksRemote — a deck's
+// `pages` column carries the same kind of embedded slide images decks.cards does, so an
+// anatomy deck list should never block on it either. `pages: null` is the "still loading
+// detail" sentinel, matching decks' `cards: null`.
+async function loadAnatomyDecksMetaRemote(userId) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from('anatomy_decks')
+      .select('id, name, source_file, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) return data.map((row) => ({ ...rowToAnatomyDeck(row), pages: null }));
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
+}
+
+async function loadAnatomyDecksRemote(userId) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from('anatomy_decks')
+      .select('id, name, source_file, created_at, pages')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) return data.map(rowToAnatomyDeck);
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
+}
+
+async function upsertAnatomyDeckRemote(userId, deck) {
+  const row = {
+    id: deck.id,
+    user_id: userId,
+    name: deck.name,
+    source_file: deck.sourceFile,
+    created_at: deck.createdAt,
+    pages: deck.pages,
+  };
+
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await supabase.from('anatomy_decks').upsert(row);
+    if (!error) return deck;
+    lastError = error;
+    if (!isRetryableSaveError(error)) throw error;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw lastError;
+}
+
+async function deleteAnatomyDeckRemote(userId, id) {
+  await supabase.from('anatomy_progress').delete().eq('deck_id', id);
+  const { error } = await supabase.from('anatomy_decks').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function loadAnatomyProgressRemote(deckId) {
+  const { data, error } = await supabase.from('anatomy_progress').select('state').eq('deck_id', deckId).maybeSingle();
+  if (error) throw error;
+  return data?.state ?? null;
+}
+
+async function saveAnatomyProgressRemote(userId, deckId, state) {
+  const { error } = await supabase.from('anatomy_progress').upsert({ deck_id: deckId, user_id: userId, state });
+  if (error) throw error;
+}
+
 // --- Public API: dispatches to remote or local depending on sign-in state ---
 
 // Guest mode (IndexedDB) is already fast/local, so it has no separate lightweight path —
@@ -243,4 +373,36 @@ export async function saveQuizState(deckId, state) {
 export async function loadAllQuizStates() {
   const userId = await getUserId();
   return userId ? loadAllQuizStatesRemote(userId) : loadAllQuizStatesLocal();
+}
+
+// --- Public API — Anatomy Quiz ---
+
+export async function loadAnatomyDecksMeta() {
+  const userId = await getUserId();
+  return userId ? loadAnatomyDecksMetaRemote(userId) : loadAnatomyDecksLocal();
+}
+
+export async function loadAnatomyDecks() {
+  const userId = await getUserId();
+  return userId ? loadAnatomyDecksRemote(userId) : loadAnatomyDecksLocal();
+}
+
+export async function upsertAnatomyDeck(deck) {
+  const userId = await getUserId();
+  return userId ? upsertAnatomyDeckRemote(userId, deck) : upsertAnatomyDeckLocal(deck);
+}
+
+export async function deleteAnatomyDeck(id) {
+  const userId = await getUserId();
+  return userId ? deleteAnatomyDeckRemote(userId, id) : deleteAnatomyDeckLocal(id);
+}
+
+export async function loadAnatomyProgress(deckId) {
+  const userId = await getUserId();
+  return userId ? loadAnatomyProgressRemote(deckId) : loadAnatomyProgressLocal(deckId);
+}
+
+export async function saveAnatomyProgress(deckId, state) {
+  const userId = await getUserId();
+  return userId ? saveAnatomyProgressRemote(userId, deckId, state) : saveAnatomyProgressLocal(deckId, state);
 }
