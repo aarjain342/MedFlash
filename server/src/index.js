@@ -10,7 +10,7 @@ import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './ra
 import { proGenerationLimiter, proChatLimiter } from './planLimit.js';
 import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
-import { buildAnatomyLabelPrompt, sanitizeAnatomyLabels } from './anatomy.js';
+import { buildAnatomyLabelPrompt, parseAnatomyResponse, sanitizeAnatomyLabels, sanitizeDiagrams } from './anatomy.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
 import { stripe, billingConfigured } from './stripeClient.js';
 import { adminConfigured } from './supabaseAdmin.js';
@@ -271,19 +271,27 @@ app.post('/api/generate-anatomy-stream', requireAuth, generationLimiter.middlewa
   try {
     await runWithConcurrency(pageIndexes, ANATOMY_CONCURRENCY, async (pageIndex) => {
       const { imageDataUrl } = source.getPage(pageIndex);
-      if (!imageDataUrl) return { pageIndex, labels: [], imageDataUrl: null };
+      if (!imageDataUrl) return { pageIndex, labels: [], diagrams: [], imageDataUrl: null };
 
       const raw = await generateWithFallback(providerChain, {
         imageDataUrl,
         buildPrompt: (hasImage) => (hasImage ? buildAnatomyLabelPrompt(pageIndex, pageCount) : null),
       });
-      const labels = sanitizeAnatomyLabels(parseJsonArray(raw));
-      return { pageIndex, labels, imageDataUrl };
+      const { diagrams: rawDiagrams, labels: rawLabels } = parseAnatomyResponse(raw);
+      const labels = sanitizeAnatomyLabels(rawLabels);
+      const diagrams = sanitizeDiagrams(rawDiagrams);
+      return { pageIndex, labels, diagrams, imageDataUrl };
     }, (index, result, err) => {
       if (err) {
         send('page-error', { page: index + 1, totalPages: pageCount, error: err.message });
       } else if (result.labels.length > 0) {
-        send('page', { page: index + 1, totalPages: pageCount, labels: result.labels, image: result.imageDataUrl });
+        send('page', {
+          page: index + 1,
+          totalPages: pageCount,
+          labels: result.labels,
+          diagrams: result.diagrams,
+          image: result.imageDataUrl,
+        });
       } else {
         send('page-skipped', { page: index + 1, totalPages: pageCount });
       }

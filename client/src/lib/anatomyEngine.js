@@ -59,29 +59,11 @@ export function getStats(state) {
   return { correct, wrong: values.length - correct, attempted: values.length };
 }
 
-const CROP_PADDING_FRACTION = 0.12; // margin around the tightest box containing every label
-const MIN_CROP_SIZE = 260; // out of 1000 — a floor so a page with 1-2 clustered labels doesn't zoom in absurdly tight
+const CROP_PADDING_FRACTION = 0.12; // margin around the tightest box containing the crop target
+const MIN_CROP_SIZE = 260; // out of 1000 — a floor so a small/tight target doesn't zoom in absurdly tight
+const OUTLIER_TRIM_FRACTION = 0.08; // fallback path only — see getPageCrop
 
-// A source PDF page is rendered whole (title/branding chrome included), but a page's
-// actual diagram is often only a small region of it — a title-slide layout with one small
-// inset photo, say. Showing the whole page makes that inset the size of a postage stamp.
-// This crops the display to the region that actually contains labels instead, so the
-// diagram — not the surrounding page — is what fills the frame. Computed from ALL labels
-// on the page (not just the current one) and held fixed while stepping through that page's
-// labels, so the framing doesn't jump around and every other label stays visible for
-// context, matching the existing one-hidden-label-at-a-time design.
-export function getPageCrop(labels) {
-  if (!labels || labels.length === 0) return [0, 0, 1000, 1000];
-
-  let ymin = 1000, xmin = 1000, ymax = 0, xmax = 0;
-  for (const l of labels) {
-    const [by0, bx0, by1, bx1] = l.box;
-    ymin = Math.min(ymin, by0);
-    xmin = Math.min(xmin, bx0);
-    ymax = Math.max(ymax, by1);
-    xmax = Math.max(xmax, bx1);
-  }
-
+function padAndClampCrop(ymin, xmin, ymax, xmax) {
   const padY = Math.max((ymax - ymin) * CROP_PADDING_FRACTION, 20);
   const padX = Math.max((xmax - xmin) * CROP_PADDING_FRACTION, 20);
   let cy0 = Math.max(0, ymin - padY);
@@ -101,4 +83,57 @@ export function getPageCrop(labels) {
   }
 
   return [cy0, cx0, cy1, cx1];
+}
+
+// Trimmed min/max: ignores the most extreme ~8% of values on each side (only once there
+// are enough values to do that safely) before taking the extent. Used only as a fallback
+// (see below) to resist a single wildly mispositioned label without needing to know which
+// one is bad.
+function trimmedExtent(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const n = sorted.length;
+  if (n <= 4) return [sorted[0], sorted[n - 1]];
+  const k = Math.floor(n * OUTLIER_TRIM_FRACTION);
+  return [sorted[k], sorted[n - 1 - k]];
+}
+
+// A source PDF page is rendered whole (title/branding chrome included), but a page's
+// actual diagram is often only a small region of it — a title-slide layout with one small
+// inset photo, say. Showing the whole page makes that inset the size of a postage stamp.
+// This crops the display to the diagram itself instead, so it — not the surrounding page —
+// is what fills the frame. Held fixed while stepping through a page's labels, so the
+// framing doesn't jump around and every other label stays visible for context, matching
+// the existing one-hidden-label-at-a-time design.
+//
+// Prefers `page.diagrams` — each photo/diagram's own bounding box, asked for directly from
+// the model (server/src/anatomy.js) rather than inferred from labels. This is the reliable
+// path: a single mislabeled or hallucinated label box can't drag the frame open, because
+// labels aren't involved in computing it at all.
+//
+// Falls back to a trimmed union of label boxes for decks saved before diagram regions were
+// tracked. This is inherently less reliable — confirmed in practice: a page's crop was
+// dragged wide open by what was almost certainly one wayward label box — so the trim
+// exists specifically to blunt that failure mode for already-saved decks that can't be
+// re-processed without a re-upload, not because it's as trustworthy as the diagrams path.
+export function getPageCrop(page) {
+  const diagrams = page?.diagrams;
+  if (diagrams && diagrams.length > 0) {
+    let ymin = 1000, xmin = 1000, ymax = 0, xmax = 0;
+    for (const [by0, bx0, by1, bx1] of diagrams) {
+      ymin = Math.min(ymin, by0);
+      xmin = Math.min(xmin, bx0);
+      ymax = Math.max(ymax, by1);
+      xmax = Math.max(xmax, bx1);
+    }
+    return padAndClampCrop(ymin, xmin, ymax, xmax);
+  }
+
+  const labels = page?.labels;
+  if (!labels || labels.length === 0) return [0, 0, 1000, 1000];
+
+  const [ymin] = trimmedExtent(labels.map((l) => l.box[0]));
+  const [xmin] = trimmedExtent(labels.map((l) => l.box[1]));
+  const [, ymax] = trimmedExtent(labels.map((l) => l.box[2]));
+  const [, xmax] = trimmedExtent(labels.map((l) => l.box[3]));
+  return padAndClampCrop(ymin, xmin, ymax, xmax);
 }

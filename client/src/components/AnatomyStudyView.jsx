@@ -94,7 +94,7 @@ export default function AnatomyStudyView({ deck, onExit }) {
   // Held fixed per page (not recomputed per label) so the framing doesn't jump around as
   // you step through a page's labels, and every other label on the page stays visible —
   // same reasoning as only occluding the current label.
-  const crop = useMemo(() => getPageCrop(step?.page?.labels), [step?.pageIndex]);
+  const crop = useMemo(() => getPageCrop(step?.page), [step?.pageIndex]);
 
   if (phase === 'loading') {
     return (

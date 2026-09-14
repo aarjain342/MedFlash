@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeAnatomyLabels, buildAnatomyLabelPrompt } from './anatomy.js';
+import { sanitizeAnatomyLabels, sanitizeDiagrams, parseAnatomyResponse, buildAnatomyLabelPrompt } from './anatomy.js';
 
 describe('sanitizeAnatomyLabels', () => {
   test('keeps a well-formed label', () => {
@@ -112,6 +112,54 @@ describe('sanitizeAnatomyLabels', () => {
   });
 });
 
+describe('sanitizeDiagrams', () => {
+  test('keeps well-formed diagram boxes', () => {
+    const result = sanitizeDiagrams([[100, 100, 500, 500], [50, 600, 300, 950]]);
+    assert.deepEqual(result, [[100, 100, 500, 500], [50, 600, 300, 950]]);
+  });
+
+  test('non-array input returns an empty array instead of throwing', () => {
+    assert.deepEqual(sanitizeDiagrams(null), []);
+    assert.deepEqual(sanitizeDiagrams('nope'), []);
+  });
+
+  test('drops malformed boxes (reusing the same validation as labels)', () => {
+    const result = sanitizeDiagrams([[1, 2, 3], 'not-a-box', [100, 100, 100, 200], [10, 10, 500, 500]]);
+    assert.deepEqual(result, [[10, 10, 500, 500]]);
+  });
+
+  test('truncates to the per-page diagram cap', () => {
+    const many = Array.from({ length: 20 }, (_, i) => [i, 0, i + 50, 50]);
+    assert.equal(sanitizeDiagrams(many).length, 10);
+  });
+});
+
+describe('parseAnatomyResponse', () => {
+  test('parses the expected object shape', () => {
+    const result = parseAnatomyResponse(
+      '{"diagrams": [[10,10,500,500]], "labels": [{"label":"Vertebral body","box":[100,100,150,200]}]}'
+    );
+    assert.deepEqual(result, {
+      diagrams: [[10, 10, 500, 500]],
+      labels: [{ label: 'Vertebral body', box: [100, 100, 150, 200] }],
+    });
+  });
+
+  test('extracts from surrounding prose/markdown fences', () => {
+    const result = parseAnatomyResponse('```json\n{"diagrams": [], "labels": []}\n```');
+    assert.deepEqual(result, { diagrams: [], labels: [] });
+  });
+
+  test('falls back to treating a bare array as labels-only (older/non-compliant response shape)', () => {
+    const result = parseAnatomyResponse('[{"label":"Vertebral body","box":[100,100,150,200]}]');
+    assert.deepEqual(result, { diagrams: [], labels: [{ label: 'Vertebral body', box: [100, 100, 150, 200] }] });
+  });
+
+  test('throws a clear error when no JSON is present', () => {
+    assert.throws(() => parseAnatomyResponse('sorry, I cannot help with that'), /did not return parseable JSON/);
+  });
+});
+
 describe('buildAnatomyLabelPrompt', () => {
   test('instructs the model to exclude captions/headings with no leader line', () => {
     const prompt = buildAnatomyLabelPrompt(0, 10);
@@ -119,9 +167,10 @@ describe('buildAnatomyLabelPrompt', () => {
     assert.match(prompt, /L2 vertebra/);
   });
 
-  test('instructs the model to return an empty array for non-diagram pages', () => {
+  test('asks for each diagram/photo region separately from labels', () => {
     const prompt = buildAnatomyLabelPrompt(0, 10);
-    assert.match(prompt, /return an empty array/);
+    assert.match(prompt, /find every distinct photo\/diagram/);
+    assert.match(prompt, /"diagrams":/);
   });
 
   test('includes the page number and total', () => {

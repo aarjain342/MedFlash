@@ -103,19 +103,20 @@ describe('recordResult / advance / getStats', () => {
 });
 
 describe('getPageCrop', () => {
-  test('a page with no labels falls back to the full image', () => {
-    assert.deepEqual(getPageCrop([]), [0, 0, 1000, 1000]);
+  test('a page with no labels and no diagrams falls back to the full image', () => {
+    assert.deepEqual(getPageCrop({ labels: [], diagrams: [] }), [0, 0, 1000, 1000]);
     assert.deepEqual(getPageCrop(null), [0, 0, 1000, 1000]);
+    assert.deepEqual(getPageCrop({}), [0, 0, 1000, 1000]);
   });
 
   test('crops tightly (plus padding) around a small cluster of labels, not the whole page', () => {
     // Mimics a title-slide layout: a small inset diagram in one corner of an otherwise
-    // mostly-empty/branding page.
+    // mostly-empty/branding page. No `diagrams` field — the label-union fallback path.
     const labels = [
       { box: [180, 700, 220, 800] },
       { box: [250, 680, 280, 780] },
     ];
-    const [cy0, cx0, cy1, cx1] = getPageCrop(labels);
+    const [cy0, cx0, cy1, cx1] = getPageCrop({ labels });
     // Should be far smaller than the full 0-1000 page, and centered on the label cluster.
     assert.ok(cy1 - cy0 < 400, `expected a tight crop, got height ${cy1 - cy0}`);
     assert.ok(cx1 - cx0 < 400, `expected a tight crop, got width ${cx1 - cx0}`);
@@ -124,7 +125,7 @@ describe('getPageCrop', () => {
   });
 
   test('never zooms in tighter than the minimum crop size, even for one tiny label', () => {
-    const [cy0, cx0, cy1, cx1] = getPageCrop([{ box: [500, 500, 510, 510] }]);
+    const [cy0, cx0, cy1, cx1] = getPageCrop({ labels: [{ box: [500, 500, 510, 510] }] });
     assert.ok(cy1 - cy0 >= 260);
     assert.ok(cx1 - cx0 >= 260);
   });
@@ -134,13 +135,51 @@ describe('getPageCrop', () => {
       { box: [50, 50, 70, 150] },
       { box: [900, 850, 950, 950] },
     ];
-    const [cy0, cx0, cy1, cx1] = getPageCrop(labels);
+    const [cy0, cx0, cy1, cx1] = getPageCrop({ labels });
     assert.ok(cy0 < 50 && cy1 > 900);
     assert.ok(cx0 < 50 && cx1 > 850);
   });
 
   test('clamps to the image bounds instead of producing negative or >1000 coordinates', () => {
-    const [cy0, cx0, cy1, cx1] = getPageCrop([{ box: [5, 5, 15, 15] }]);
+    const [cy0, cx0, cy1, cx1] = getPageCrop({ labels: [{ box: [5, 5, 15, 15] }] });
     assert.ok(cy0 >= 0 && cx0 >= 0 && cy1 <= 1000 && cx1 <= 1000);
+  });
+
+  test('prefers explicit diagram regions over labels when both are present', () => {
+    // The label union below would produce a huge crop; the diagram region says the actual
+    // photo is a small area elsewhere — diagrams should win.
+    const page = {
+      diagrams: [[700, 700, 900, 900]],
+      labels: [{ box: [10, 10, 950, 950] }],
+    };
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page);
+    assert.ok(cy1 - cy0 < 400 && cx1 - cx0 < 400, 'expected the tight diagram-based crop, not the huge label box');
+    assert.ok(cy0 < 700 && cy1 > 900 && cx0 < 700 && cx1 > 900);
+  });
+
+  test('unions multiple diagram regions (a page with several separate photos)', () => {
+    const page = { diagrams: [[50, 50, 200, 200], [700, 700, 900, 950]], labels: [] };
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page);
+    assert.ok(cy0 < 50 && cy1 > 900 && cx0 < 50 && cx1 > 950);
+  });
+
+  test('the label-fallback trims a wildly mispositioned outlier label instead of following it', () => {
+    // Matches a real observed failure: a tight, legitimate cluster of labels plus one
+    // label whose box lands somewhere else entirely, dragging a plain min/max union open.
+    const tightCluster = Array.from({ length: 12 }, (_, i) => ({
+      box: [600 + i, 600 + i, 620 + i, 650 + i],
+    }));
+    const labels = [...tightCluster, { box: [0, 0, 30, 30] }]; // one wayward outlier near the corner
+    const [, cx0] = getPageCrop({ labels });
+    // Without trimming, cx0 would be ~0 (dragged all the way to the outlier). With
+    // trimming, it should stay close to the real cluster's own left edge (~600).
+    assert.ok(cx0 > 400, `expected the outlier to be trimmed out, got cx0=${cx0}`);
+  });
+
+  test('does not trim with too few labels to establish a safe baseline (small pages keep plain min/max)', () => {
+    const labels = [{ box: [500, 500, 520, 520] }, { box: [0, 0, 20, 20] }];
+    const [cy0, cx0] = getPageCrop({ labels });
+    // Only 2 labels — trimming is skipped, so the crop still has to contain both.
+    assert.ok(cy0 < 20 && cx0 < 20);
   });
 });

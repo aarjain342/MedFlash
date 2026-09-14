@@ -40,7 +40,7 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
           // returns { label, box }, same division of responsibility as UploadPanel
           // assigning card ids rather than the server's sanitizeCards doing it.
           const labels = data.labels.map((l) => ({ id: makeId(), label: l.label, box: l.box }));
-          pagesByNumber.set(data.page, { page: data.page, image: data.image, labels });
+          pagesByNumber.set(data.page, { page: data.page, image: data.image, labels, diagrams: data.diagrams || [] });
           setProgress((p) => ({
             done: p.done + 1,
             total: totalPages,
