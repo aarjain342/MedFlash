@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   initAnatomyState,
   getCurrentStep,
@@ -10,13 +10,13 @@ import {
 import { loadAnatomyProgress, saveAnatomyProgress } from '../lib/db';
 import { recordActivity } from '../lib/streak';
 
-// A source PDF page is rendered whole (title/branding chrome included), but the actual
-// diagram is often only a small region of it — getPageCrop (anatomyEngine.js) picks the
-// region that contains every label on the page, so a small inset diagram on an otherwise
-// mostly-empty page fills the frame instead of rendering as a postage stamp. Both the
-// image and each label's occlusion box are then expressed as percentages of that cropped
-// region rather than the full 0-1000 page — still no pixel measurement or ResizeObserver
-// needed, just one more layer of the same percentage math.
+// A source PDF page is rendered whole (title/branding chrome included) and can contain
+// several separate diagrams — getPageCrop (anatomyEngine.js) picks just the one diagram
+// the current label belongs to, so that diagram fills the frame instead of the whole page
+// (or every diagram on it). Both the image and the current label's occlusion box are then
+// expressed as percentages of that cropped region rather than the full 0-1000 page — still
+// no pixel measurement or ResizeObserver needed, just one more layer of the same
+// percentage math.
 function cropImageStyle(crop) {
   const [cy0, cx0, cy1, cx1] = crop;
   const cropW = cx1 - cx0;
@@ -91,10 +91,9 @@ export default function AnatomyStudyView({ deck, onExit }) {
   }
 
   const step = phase === 'loading' ? null : getCurrentStep(deck.pages, quizState);
-  // Held fixed per page (not recomputed per label) so the framing doesn't jump around as
-  // you step through a page's labels, and every other label on the page stays visible —
-  // same reasoning as only occluding the current label.
-  const crop = useMemo(() => getPageCrop(step?.page), [step?.pageIndex]);
+  // Recomputed per label (cheap — a handful of boxes at most) so the frame follows the
+  // specific diagram the current label belongs to, not the whole page's worth of diagrams.
+  const crop = step ? getPageCrop(step.page, step.label) : [0, 0, 1000, 1000];
 
   if (phase === 'loading') {
     return (

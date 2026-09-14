@@ -182,4 +182,56 @@ describe('getPageCrop', () => {
     // Only 2 labels — trimming is skipped, so the crop still has to contain both.
     assert.ok(cy0 < 20 && cx0 < 20);
   });
+
+  test('given a specific label, crops to just the diagram it belongs to — not every diagram on the page', () => {
+    // Matches a real observed complaint: a 4-diagram page correctly excluded the title
+    // panel, but still forced showing all 4 diagrams at once for a question about one of
+    // them, making the actual occluded label hard to even find.
+    const page = {
+      diagrams: [
+        [50, 50, 300, 300], // diagram A
+        [700, 700, 950, 950], // diagram B, far away
+      ],
+      labels: [],
+    };
+    const labelOnA = { box: [100, 100, 130, 200] }; // clearly inside diagram A only
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page, labelOnA);
+    assert.ok(cy0 < 50 && cy1 > 300, 'should contain diagram A');
+    assert.ok(cx0 < 50 && cx1 > 300, 'should contain diagram A');
+    assert.ok(cy1 < 700 && cx1 < 700, 'should NOT extend out to diagram B');
+  });
+
+  test('refocuses correctly when the next label belongs to a different diagram', () => {
+    const page = {
+      diagrams: [[50, 50, 300, 300], [700, 700, 950, 950]],
+      labels: [],
+    };
+    const onA = getPageCrop(page, { box: [100, 100, 130, 200] });
+    const onB = getPageCrop(page, { box: [750, 750, 780, 850] });
+    assert.notDeepEqual(onA, onB);
+    assert.ok(onB[0] > 500, 'crop for the label on diagram B should be positioned over B, not A');
+  });
+
+  test('falls back to the diagram union if the label does not clearly belong to any single diagram', () => {
+    // Imprecise boxes happen — the label's center lands in the gap between two diagrams.
+    const page = {
+      diagrams: [[50, 50, 300, 300], [700, 700, 950, 950]],
+      labels: [],
+    };
+    const strayLabel = { box: [480, 480, 500, 500] }; // center at (490,490) — inside neither diagram
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page, strayLabel);
+    assert.ok(cy0 < 50 && cy1 > 950 && cx0 < 50 && cx1 > 950, 'should fall back to the union of both diagrams');
+  });
+
+  test('with no diagrams field, a specific label crops generously around just that label — not distant labels on the page', () => {
+    const page = {
+      labels: [
+        { box: [100, 100, 120, 150] }, // the current label
+        { box: [800, 800, 820, 850] }, // a distant, unrelated label elsewhere on the page
+      ],
+    };
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page, page.labels[0]);
+    assert.ok(cy1 < 800 && cx1 < 800, 'should not stretch to include the distant label');
+    assert.ok(cy0 < 100 && cx0 < 100, 'should contain the current label with some margin');
+  });
 });

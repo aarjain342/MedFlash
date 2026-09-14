@@ -97,35 +97,68 @@ function trimmedExtent(values) {
   return [sorted[k], sorted[n - 1 - k]];
 }
 
-// A source PDF page is rendered whole (title/branding chrome included), but a page's
-// actual diagram is often only a small region of it — a title-slide layout with one small
-// inset photo, say. Showing the whole page makes that inset the size of a postage stamp.
-// This crops the display to the diagram itself instead, so it — not the surrounding page —
-// is what fills the frame. Held fixed while stepping through a page's labels, so the
-// framing doesn't jump around and every other label stays visible for context, matching
-// the existing one-hidden-label-at-a-time design.
+function unionBoxes(boxes) {
+  let ymin = 1000, xmin = 1000, ymax = 0, xmax = 0;
+  for (const [by0, bx0, by1, bx1] of boxes) {
+    ymin = Math.min(ymin, by0);
+    xmin = Math.min(xmin, bx0);
+    ymax = Math.max(ymax, by1);
+    xmax = Math.max(xmax, bx1);
+  }
+  return [ymin, xmin, ymax, xmax];
+}
+
+// True if `inner`'s center point falls inside `outer` — centroid rather than full
+// containment, since a label's box can slightly overhang its own (also imprecise)
+// diagram's edge without actually belonging to some other diagram.
+function centerWithin(outer, inner) {
+  const [oy0, ox0, oy1, ox1] = outer;
+  const [iy0, ix0, iy1, ix1] = inner;
+  const cy = (iy0 + iy1) / 2;
+  const cx = (ix0 + ix1) / 2;
+  return cy >= oy0 && cy <= oy1 && cx >= ox0 && cx <= ox1;
+}
+
+const SINGLE_LABEL_CONTEXT_PADDING = 200; // fallback path only — see getPageCrop
+
+// A source PDF page is rendered whole (title/branding chrome included), and a page can
+// contain several separate photos/diagrams side by side (e.g. four different vertebra
+// views) — showing the whole page, or even every diagram on the page, forces the user to
+// hunt for which small region the current question is actually about. This crops the
+// display to just the ONE diagram the current label belongs to, so the diagram relevant to
+// THIS question — not the whole page or every diagram on it — is what fills the frame.
+// Recomputed per label (not held fixed for the whole page): consecutive labels usually
+// share a diagram (labels are stored in reading order), so the framing is stable in
+// practice, but correctly refocuses the moment the step crosses into a different diagram.
 //
 // Prefers `page.diagrams` — each photo/diagram's own bounding box, asked for directly from
 // the model (server/src/anatomy.js) rather than inferred from labels. This is the reliable
 // path: a single mislabeled or hallucinated label box can't drag the frame open, because
-// labels aren't involved in computing it at all.
+// labels aren't involved in computing which region to show.
 //
-// Falls back to a trimmed union of label boxes for decks saved before diagram regions were
-// tracked. This is inherently less reliable — confirmed in practice: a page's crop was
-// dragged wide open by what was almost certainly one wayward label box — so the trim
-// exists specifically to blunt that failure mode for already-saved decks that can't be
-// re-processed without a re-upload, not because it's as trustworthy as the diagrams path.
-export function getPageCrop(page) {
+// Falls back to a generous fixed-size window around just the current label for decks saved
+// before diagram regions were tracked — deliberately not a union of every label on the
+// page (that was tried and confirmed too fragile: a single wayward label box dragged the
+// frame open to include unrelated page chrome in practice), and not clustering by proximity
+// either, to keep the fallback simple for what's meant to be a temporary compatibility path.
+export function getPageCrop(page, label) {
   const diagrams = page?.diagrams;
   if (diagrams && diagrams.length > 0) {
-    let ymin = 1000, xmin = 1000, ymax = 0, xmax = 0;
-    for (const [by0, bx0, by1, bx1] of diagrams) {
-      ymin = Math.min(ymin, by0);
-      xmin = Math.min(xmin, bx0);
-      ymax = Math.max(ymax, by1);
-      xmax = Math.max(xmax, bx1);
-    }
+    const match = label && diagrams.find((d) => centerWithin(d, label.box));
+    const [ymin, xmin, ymax, xmax] = match || unionBoxes(diagrams);
     return padAndClampCrop(ymin, xmin, ymax, xmax);
+  }
+
+  if (label) {
+    const [ly0, lx0, ly1, lx1] = label.box;
+    const cy = (ly0 + ly1) / 2;
+    const cx = (lx0 + lx1) / 2;
+    return padAndClampCrop(
+      cy - SINGLE_LABEL_CONTEXT_PADDING,
+      cx - SINGLE_LABEL_CONTEXT_PADDING,
+      cy + SINGLE_LABEL_CONTEXT_PADDING,
+      cx + SINGLE_LABEL_CONTEXT_PADDING
+    );
   }
 
   const labels = page?.labels;
