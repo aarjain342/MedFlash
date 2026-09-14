@@ -7,6 +7,7 @@ import {
   recordResult,
   advance,
   getStats,
+  getPageCrop,
 } from './anatomyEngine.js';
 
 function samplePages() {
@@ -98,5 +99,48 @@ describe('recordResult / advance / getStats', () => {
     const step = getCurrentStep(pages, saved);
     assert.equal(step.labelId, 'p1-b');
     assert.deepEqual(getStats(saved), { correct: 1, wrong: 0, attempted: 1 });
+  });
+});
+
+describe('getPageCrop', () => {
+  test('a page with no labels falls back to the full image', () => {
+    assert.deepEqual(getPageCrop([]), [0, 0, 1000, 1000]);
+    assert.deepEqual(getPageCrop(null), [0, 0, 1000, 1000]);
+  });
+
+  test('crops tightly (plus padding) around a small cluster of labels, not the whole page', () => {
+    // Mimics a title-slide layout: a small inset diagram in one corner of an otherwise
+    // mostly-empty/branding page.
+    const labels = [
+      { box: [180, 700, 220, 800] },
+      { box: [250, 680, 280, 780] },
+    ];
+    const [cy0, cx0, cy1, cx1] = getPageCrop(labels);
+    // Should be far smaller than the full 0-1000 page, and centered on the label cluster.
+    assert.ok(cy1 - cy0 < 400, `expected a tight crop, got height ${cy1 - cy0}`);
+    assert.ok(cx1 - cx0 < 400, `expected a tight crop, got width ${cx1 - cx0}`);
+    assert.ok(cy0 < 180 && cy1 > 280); // fully contains both label boxes
+    assert.ok(cx0 < 680 && cx1 > 800);
+  });
+
+  test('never zooms in tighter than the minimum crop size, even for one tiny label', () => {
+    const [cy0, cx0, cy1, cx1] = getPageCrop([{ box: [500, 500, 510, 510] }]);
+    assert.ok(cy1 - cy0 >= 260);
+    assert.ok(cx1 - cx0 >= 260);
+  });
+
+  test('a page where labels span nearly the whole image stays close to the full page', () => {
+    const labels = [
+      { box: [50, 50, 70, 150] },
+      { box: [900, 850, 950, 950] },
+    ];
+    const [cy0, cx0, cy1, cx1] = getPageCrop(labels);
+    assert.ok(cy0 < 50 && cy1 > 900);
+    assert.ok(cx0 < 50 && cx1 > 850);
+  });
+
+  test('clamps to the image bounds instead of producing negative or >1000 coordinates', () => {
+    const [cy0, cx0, cy1, cx1] = getPageCrop([{ box: [5, 5, 15, 15] }]);
+    assert.ok(cy0 >= 0 && cx0 >= 0 && cy1 <= 1000 && cx1 <= 1000);
   });
 });

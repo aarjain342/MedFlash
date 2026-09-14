@@ -1,31 +1,52 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   initAnatomyState,
   getCurrentStep,
   recordResult,
   advance,
   getStats,
+  getPageCrop,
 } from '../lib/anatomyEngine';
 import { loadAnatomyProgress, saveAnatomyProgress } from '../lib/db';
 import { recordActivity } from '../lib/streak';
 
-// Occlusion box coordinates are normalized 0-1000 to the full image regardless of its
-// rendered size, so this is a straight percentage conversion — no pixel measurement or
-// ResizeObserver needed. A little padding is added on each side to tolerate a model box
-// that's slightly off, without covering neighboring labels.
-function occlusionStyle(box) {
+// A source PDF page is rendered whole (title/branding chrome included), but the actual
+// diagram is often only a small region of it — getPageCrop (anatomyEngine.js) picks the
+// region that contains every label on the page, so a small inset diagram on an otherwise
+// mostly-empty page fills the frame instead of rendering as a postage stamp. Both the
+// image and each label's occlusion box are then expressed as percentages of that cropped
+// region rather than the full 0-1000 page — still no pixel measurement or ResizeObserver
+// needed, just one more layer of the same percentage math.
+function cropImageStyle(crop) {
+  const [cy0, cx0, cy1, cx1] = crop;
+  const cropW = cx1 - cx0;
+  const cropH = cy1 - cy0;
+  return {
+    width: `${(1000 / cropW) * 100}%`,
+    height: `${(1000 / cropH) * 100}%`,
+    left: `${-(cx0 / cropW) * 100}%`,
+    top: `${-(cy0 / cropH) * 100}%`,
+  };
+}
+
+// A little padding is added around each label's own box to tolerate a model box that's
+// slightly off, without covering neighboring labels.
+function occlusionStyle(box, crop) {
+  const [cy0, cx0, cy1, cx1] = crop;
+  const cropW = cx1 - cx0;
+  const cropH = cy1 - cy0;
   const [ymin, xmin, ymax, xmax] = box;
   const padY = (ymax - ymin) * 0.18;
   const padX = (xmax - xmin) * 0.18;
-  const top = Math.max(0, ymin - padY);
-  const left = Math.max(0, xmin - padX);
-  const bottom = Math.min(1000, ymax + padY);
-  const right = Math.min(1000, xmax + padX);
+  const top = Math.max(cy0, ymin - padY);
+  const left = Math.max(cx0, xmin - padX);
+  const bottom = Math.min(cy1, ymax + padY);
+  const right = Math.min(cx1, xmax + padX);
   return {
-    top: `${top / 10}%`,
-    left: `${left / 10}%`,
-    width: `${(right - left) / 10}%`,
-    height: `${(bottom - top) / 10}%`,
+    top: `${((top - cy0) / cropH) * 100}%`,
+    left: `${((left - cx0) / cropW) * 100}%`,
+    width: `${((right - left) / cropW) * 100}%`,
+    height: `${((bottom - top) / cropH) * 100}%`,
   };
 }
 
@@ -69,6 +90,12 @@ export default function AnatomyStudyView({ deck, onExit }) {
     setPhase(getCurrentStep(deck.pages, quizState) ? 'ready' : 'complete');
   }
 
+  const step = phase === 'loading' ? null : getCurrentStep(deck.pages, quizState);
+  // Held fixed per page (not recomputed per label) so the framing doesn't jump around as
+  // you step through a page's labels, and every other label on the page stays visible —
+  // same reasoning as only occluding the current label.
+  const crop = useMemo(() => getPageCrop(step?.page?.labels), [step?.pageIndex]);
+
   if (phase === 'loading') {
     return (
       <div className="panel study-panel">
@@ -92,8 +119,6 @@ export default function AnatomyStudyView({ deck, onExit }) {
     );
   }
 
-  const step = getCurrentStep(deck.pages, quizState);
-
   return (
     <div className="panel study-panel">
       <div className="study-header">
@@ -103,9 +128,9 @@ export default function AnatomyStudyView({ deck, onExit }) {
         </span>
       </div>
 
-      <div className="occlusion-wrap">
-        <img className="occlusion-image" src={step.page.image} alt={`Page ${step.page.page}`} />
-        {!revealed && <div className="occlusion-box" style={occlusionStyle(step.label.box)} />}
+      <div className="occlusion-wrap" style={{ aspectRatio: `${crop[3] - crop[1]} / ${crop[2] - crop[0]}` }}>
+        <img className="occlusion-image" src={step.page.image} alt={`Page ${step.page.page}`} style={cropImageStyle(crop)} />
+        {!revealed && <div className="occlusion-box" style={occlusionStyle(step.label.box, crop)} />}
       </div>
 
       {!revealed ? (
