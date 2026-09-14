@@ -13,10 +13,22 @@ import { recordActivity } from '../lib/streak';
 // A source PDF page is rendered whole (title/branding chrome included) and can contain
 // several separate diagrams — getPageCrop (anatomyEngine.js) picks just the one diagram
 // the current label belongs to, so that diagram fills the frame instead of the whole page
-// (or every diagram on it). Both the image and the current label's occlusion box are then
-// expressed as percentages of that cropped region rather than the full 0-1000 page — still
-// no pixel measurement or ResizeObserver needed, just one more layer of the same
-// percentage math.
+// (or every diagram on it). The image and the current label's occlusion box are then
+// expressed as percentages of that cropped region rather than the full 0-1000 page.
+//
+// The crop box coordinates are normalized 0-1000 independently per axis (x against the
+// image's own width, y against its own height), so `(cx1-cx0)` and `(cy1-cy0)` are NOT
+// directly comparable lengths unless the source image happens to be square — a real slide
+// image here is ~16:9. Using the raw normalized box as a CSS aspect-ratio stretched the
+// image (confirmed live). `imageAspect` (naturalWidth/naturalHeight, measured once per page
+// via the <img>'s onLoad below) converts the normalized box into its true aspect ratio;
+// everything else here is still pure percentage math, no pixel measurement needed beyond
+// that one ratio.
+function cropAspectRatio(crop, imageAspect) {
+  const [cy0, cx0, cy1, cx1] = crop;
+  return ((cx1 - cx0) / (cy1 - cy0)) * imageAspect;
+}
+
 function cropImageStyle(crop) {
   const [cy0, cx0, cy1, cx1] = crop;
   const cropW = cx1 - cx0;
@@ -55,7 +67,12 @@ export default function AnatomyStudyView({ deck, onExit }) {
   const [quizState, setQuizState] = useState(null);
   const [guess, setGuess] = useState('');
   const [revealed, setRevealed] = useState(false);
+  // naturalWidth/naturalHeight of the currently-loaded page image, for cropAspectRatio.
+  // Re-measured whenever the page changes (a different page can be a different image
+  // size in principle, even though in practice a source PDF's pages are usually uniform).
+  const [imageAspect, setImageAspect] = useState(1);
   const startedRef = useRef(false);
+  const measuredPageIndexRef = useRef(null);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -127,8 +144,19 @@ export default function AnatomyStudyView({ deck, onExit }) {
         </span>
       </div>
 
-      <div className="occlusion-wrap" style={{ aspectRatio: `${crop[3] - crop[1]} / ${crop[2] - crop[0]}` }}>
-        <img className="occlusion-image" src={step.page.image} alt={`Page ${step.page.page}`} style={cropImageStyle(crop)} />
+      <div className="occlusion-wrap" style={{ aspectRatio: cropAspectRatio(crop, imageAspect) }}>
+        <img
+          className="occlusion-image"
+          src={step.page.image}
+          alt={`Page ${step.page.page}`}
+          style={cropImageStyle(crop)}
+          onLoad={(e) => {
+            if (measuredPageIndexRef.current === step.pageIndex) return;
+            measuredPageIndexRef.current = step.pageIndex;
+            const { naturalWidth, naturalHeight } = e.target;
+            if (naturalWidth && naturalHeight) setImageAspect(naturalWidth / naturalHeight);
+          }}
+        />
         {!revealed && <div className="occlusion-box" style={occlusionStyle(step.label.box, crop)} />}
       </div>
 
