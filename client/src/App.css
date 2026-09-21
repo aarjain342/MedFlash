@@ -80,6 +80,9 @@
 .app-shell {
   display: flex;
   min-height: 100vh;
+  /* dvh follows the visible height; on iPad Safari plain 100vh is taller than what's on
+     screen while the browser toolbars are showing, pushing the sidebar footer off-screen. */
+  min-height: 100dvh;
 }
 
 .app-sidebar {
@@ -94,6 +97,7 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
 }
 
 .app-sidebar .brand {
@@ -168,6 +172,9 @@
 .app-shell-content > * {
   max-width: 900px;
   width: 100%;
+  /* Centered in the space beside the sidebar; left-aligned it left a lopsided empty strip
+     on wide monitors. */
+  margin-inline: auto;
 }
 
 .app-shell-content .quiz-layout {
@@ -637,12 +644,13 @@ button.danger {
 
 .deck-card h3 {
   margin: 0 0 4px;
+  overflow-wrap: anywhere; /* a filename-style name (Some_Long_Lecture_Name) has no spaces to wrap at */
 }
 
 .deck-card-actions {
   display: flex;
   gap: 6px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap; /* on a phone four buttons don't fit one row and were clipping their labels */
 }
 
 .deck-card-actions button {
@@ -684,6 +692,11 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.study-header h2 {
+  margin: 0;
 }
 
 .flashcard {
@@ -692,6 +705,7 @@ button.danger {
      scrollable window. Grows with the viewport instead, with overflow-y: auto on each
      face (below) as a fallback only for genuinely oversized content. */
   height: min(72vh, 640px);
+  height: min(72dvh, 640px);
   min-height: 320px;
   margin: 24px 0;
   cursor: pointer;
@@ -780,18 +794,161 @@ button.danger {
   margin-top: 12px;
 }
 
+/* ---- Anatomy Quiz: full-screen study view --------------------------------------------
+   Rendered through a portal above the sidebar so the diagram gets the whole screen. The
+   overlay is exactly one screen tall and never scrolls: header on top, then the diagram
+   stage (takes all remaining space) and the answer controls (a bar underneath in portrait,
+   a column to the right in landscape). */
+html.study-locked,
+html.study-locked body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.anatomy-study {
+  position: fixed;
+  top: var(--vv-top, 0px);
+  left: 0;
+  width: 100%;
+  /* --vv-height is only set while an on-screen keyboard is open (see AnatomyStudyView);
+     otherwise dvh tracks the real visible height, which plain vh doesn't on iPad Safari. */
+  height: var(--vv-height, 100vh);
+  height: var(--vv-height, 100dvh);
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--dot) 1px, transparent 1px),
+    linear-gradient(90deg, var(--dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  overscroll-behavior: contain;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.anatomy-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.anatomy-exit {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.anatomy-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.anatomy-score {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.anatomy-score-right {
+  color: var(--success);
+}
+
+.anatomy-score-wrong {
+  color: var(--danger);
+}
+
+.anatomy-progress {
+  flex-shrink: 0;
+  height: 4px;
+  background: var(--border);
+}
+
+.anatomy-progress > div {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.25s ease;
+}
+
+.anatomy-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.anatomy-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.anatomy-controls {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 14px max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+}
+
+/* Landscape / desktop: the answer controls move to a column beside the diagram, so the
+   diagram gets the full height of the screen. */
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+  .anatomy-body {
+    flex-direction: row;
+  }
+
+  .anatomy-stage {
+    padding: 24px;
+  }
+
+  .anatomy-controls {
+    width: clamp(320px, 30vw, 440px);
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 28px;
+  }
+}
+
 .occlusion-wrap {
   position: relative;
+  flex-shrink: 0;
   overflow: hidden;
-  margin: 16px 0;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: #fff;
+  box-shadow: 0 18px 40px -22px rgba(18, 20, 26, 0.35);
 }
 
 .occlusion-image {
   position: absolute;
   max-width: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
 .occlusion-box {
@@ -800,38 +957,152 @@ button.danger {
   border-radius: 4px;
 }
 
-.occlusion-input {
-  width: 100%;
-  font-size: 15px;
-  padding: 11px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  font-family: inherit;
-  margin-bottom: 12px;
+/* Marks which label was being tested once its hiding box is removed, so it can be found in
+   a dense diagram. */
+.occlusion-ring {
+  position: absolute;
+  border: 3px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
 }
 
-.occlusion-input:focus {
+.anatomy-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.anatomy-answer-row {
+  display: flex;
+  gap: 12px;
+}
+
+.anatomy-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 52px;
+  /* 16px+ is required on iOS: anything smaller makes Safari zoom the whole page in when the
+     field is focused, which then never zooms back out. */
+  font-size: 18px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.anatomy-input:focus {
   outline: none;
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-tint);
 }
 
-.occlusion-reveal {
-  text-align: center;
-  margin: 16px 0;
+.anatomy-cta {
+  min-height: 52px;
+  padding: 0 28px;
+  font-size: 16px;
+  white-space: nowrap;
 }
 
-.occlusion-guess {
-  font-size: 17px;
+.anatomy-reveal {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.anatomy-compare {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.anatomy-compare p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.anatomy-guess {
+  font-size: 18px;
   font-style: italic;
   color: var(--muted);
 }
 
-.occlusion-answer {
+.anatomy-correct {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
+  line-height: 1.2;
   color: var(--primary);
-  margin-bottom: 16px;
+}
+
+.anatomy-grade {
+  flex-shrink: 0;
+  display: flex;
+  gap: 12px;
+}
+
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+  .anatomy-answer-row {
+    flex-direction: column;
+  }
+
+  .anatomy-reveal {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 24px;
+  }
+
+  .anatomy-compare {
+    grid-template-columns: 1fr;
+  }
+
+  .anatomy-correct {
+    font-size: 26px;
+  }
+
+  .anatomy-grade .anatomy-cta {
+    flex: 1;
+  }
+}
+
+/* Narrow portrait (phones): stack the reveal comparison over the grade buttons. */
+@media (max-width: 640px) {
+  .anatomy-reveal {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .anatomy-grade .anatomy-cta {
+    flex: 1;
+  }
+
+  .anatomy-title {
+    display: none;
+  }
+
+  .anatomy-score {
+    margin-left: auto;
+  }
+}
+
+.anatomy-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+}
+
+.anatomy-done {
+  max-width: 480px;
+  text-align: center;
 }
 
 .flashcard-face.front {
@@ -886,6 +1157,11 @@ button.danger {
   align-items: center;
   justify-content: center;
   min-height: 60vh;
+}
+
+.quiz-panel-narrow h2,
+.quiz-panel-narrow p {
+  margin: 0; /* spacing comes from the flex gap; default margins doubled it up */
 }
 
 .quiz-panel-narrow {
@@ -1460,6 +1736,7 @@ button.danger {
 
 .home-quick-actions {
   display: flex;
+  flex-wrap: wrap; /* two pills don't fit beside the sidebar rail on a phone and ran off the card */
   gap: 10px;
   margin-top: 16px;
 }
@@ -1607,6 +1884,12 @@ button.danger {
   font-size: 14px;
   color: var(--text);
   cursor: pointer;
+  /* It's a <button>, so the base rule's nowrap is inherited; a long deck name then ran past
+     the card's edge instead of wrapping. */
+  white-space: normal;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .deck-picker-item:hover {
@@ -1741,6 +2024,7 @@ button.danger {
      whenever there weren't many messages yet. */
   width: min(720px, 92vw);
   height: min(680px, 88vh);
+  height: min(680px, 88dvh);
   max-width: none;
   z-index: 200;
   box-shadow: 0 24px 64px -12px rgba(18, 20, 26, 0.35);
@@ -1917,4 +2201,305 @@ button.danger {
 
 .random-card-hint {
   margin-top: auto;
+}
+
+
+/* ---- Tablet / touch polish ------------------------------------------------------------ */
+
+.study-exit-top,
+.quiz-topbar {
+  display: none;
+}
+
+.study-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.study-show {
+  min-width: 200px;
+  padding: 13px 28px;
+}
+
+/* "Exit quiz" sits right after the submit/next button; give it some room. */
+.quiz-panel button.link {
+  margin-left: 14px;
+}
+
+.answer-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .app-shell-content {
+    padding: 20px 14px 56px;
+    gap: 16px;
+  }
+
+  .panel {
+    padding: 20px;
+    border-radius: 16px;
+  }
+}
+
+@media (pointer: coarse) {
+  /* iOS Safari zooms into any focused field under 16px and never zooms back out. */
+  input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  button.primary,
+  button.ghost,
+  button.success,
+  button.danger,
+  button.link {
+    min-height: 44px;
+  }
+
+  .segmented button {
+    min-height: 38px;
+  }
+
+  .toolbar-btn {
+    min-height: 38px;
+    padding: 8px 14px;
+  }
+
+  .sidebar-nav-item {
+    min-height: 48px;
+  }
+
+  .sidebar-collapse-toggle,
+  .sidebar-minimize-toggle {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ---- Study sessions take over the whole screen on tablets and narrow windows ------------
+   Touch devices (any size) and windows up to 1100px wide get the flashcard study view and
+   the USMLE quiz as full-screen sessions instead of a card inside the app shell. The shell's
+   nav is covered, so each has its own Exit button in a top bar. Wide mouse-driven windows keep
+   the regular in-shell layout. */
+@media (pointer: coarse), (max-width: 1100px) {
+  .app-shell-content > .study-panel,
+  .app-shell-content > .quiz-layout {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    max-width: none;
+    width: auto;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--dot) 1px, transparent 1px),
+      linear-gradient(90deg, var(--dot) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  /* Flashcard study */
+  .app-shell-content > .study-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+      max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  }
+
+  .study-panel > * {
+    width: 100%;
+    max-width: 1100px;
+    margin-inline: auto;
+    flex-shrink: 0;
+  }
+
+  .study-panel .study-header {
+    gap: 14px;
+  }
+
+  .study-panel .study-exit-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 18px;
+  }
+
+  .study-panel .study-header h2 {
+    flex: 1;
+    min-width: 0;
+    font-size: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .study-panel .study-count {
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .study-panel .flashcard {
+    flex: 1 1 auto;
+    min-height: 280px;
+    height: auto;
+    margin: 4px auto;
+  }
+
+  .study-panel .flashcard-face {
+    padding: 32px;
+  }
+
+  .study-panel .flashcard-face p {
+    font-size: clamp(20px, 2.6vw, 28px);
+  }
+
+  .study-panel .slide-image {
+    max-height: 55vh;
+    object-fit: contain;
+  }
+
+  .study-exit-bottom {
+    display: none;
+  }
+
+  .study-panel .answer-actions {
+    width: 100%;
+  }
+
+  .study-panel .answer-actions button {
+    flex: 1;
+    min-height: 54px;
+    font-size: 16px;
+  }
+
+  .study-show {
+    min-height: 54px;
+    min-width: min(360px, 100%);
+    font-size: 16px;
+  }
+
+  /* USMLE quiz */
+  .app-shell-content > .quiz-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 0 max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .quiz-layout > * {
+    width: 100%;
+    max-width: 880px;
+    flex-shrink: 0;
+  }
+
+  .quiz-layout .quiz-topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    max-width: none;
+    padding: max(10px, env(safe-area-inset-top)) 0 10px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .quiz-topbar > button {
+    min-height: 44px;
+    padding: 0 18px;
+    flex-shrink: 0;
+  }
+
+  .quiz-topbar-title {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .quiz-topbar-stats {
+    display: flex;
+    gap: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .quiz-topbar-correct {
+    color: var(--success);
+  }
+
+  .quiz-topbar-wrong {
+    color: var(--danger);
+  }
+
+  /* The question comes first; the tools/topic list sits underneath it. */
+  .quiz-layout .quiz-panel {
+    order: 1;
+    padding: 28px;
+  }
+
+  .quiz-layout .quiz-sidebar {
+    order: 2;
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .quiz-layout .quiz-sidebar.minimized {
+    width: 100%;
+    align-items: stretch;
+    padding: 20px 28px;
+  }
+
+  .quiz-layout .quiz-stats-mini {
+    flex-direction: row;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .quiz-layout .locked-in-bar {
+    order: 0;
+    max-width: none;
+    margin-top: 12px;
+  }
+
+  .quiz-stem {
+    font-size: 21px;
+  }
+
+  .quiz-option {
+    font-size: 17px;
+    padding: 16px 18px;
+  }
+
+  .quiz-panel .primary {
+    width: 100%;
+    min-height: 54px;
+    font-size: 16px;
+  }
+
+  /* The top bar has Exit here. */
+  .quiz-panel button.link {
+    display: none;
+  }
 }

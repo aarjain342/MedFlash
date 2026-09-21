@@ -108,45 +108,76 @@ function unionBoxes(boxes) {
   return [ymin, xmin, ymax, xmax];
 }
 
-// True if `inner`'s center point falls inside `outer` — centroid rather than full
-// containment, since a label's box can slightly overhang its own (also imprecise)
-// diagram's edge without actually belonging to some other diagram.
-function centerWithin(outer, inner) {
-  const [oy0, ox0, oy1, ox1] = outer;
-  const [iy0, ix0, iy1, ix1] = inner;
-  const cy = (iy0 + iy1) / 2;
-  const cx = (ix0 + ix1) / 2;
-  return cy >= oy0 && cy <= oy1 && cx >= ox0 && cx <= ox1;
+// Distance from the center of `inner` to the nearest edge of `box` (0 when the center is
+// inside it). Used to decide which figure a label belongs to.
+function distanceToBox(box, inner) {
+  const [y0, x0, y1, x1] = box;
+  const cy = (inner[0] + inner[2]) / 2;
+  const cx = (inner[1] + inner[3]) / 2;
+  const dy = cy < y0 ? y0 - cy : cy > y1 ? cy - y1 : 0;
+  const dx = cx < x0 ? x0 - cx : cx > x1 ? cx - x1 : 0;
+  return Math.hypot(dx, dy);
 }
+
+function nearestDiagramIndex(diagrams, box) {
+  let best = 0;
+  let bestDistance = Infinity;
+  diagrams.forEach((d, i) => {
+    const distance = distanceToBox(d, box);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  });
+  return best;
+}
+
+// A label further than this (0-1000 scale) from the figure it's nearest to is treated as a
+// stray and not allowed to stretch that figure's crop.
+const LABEL_ASSIGN_MAX_DISTANCE = 220;
 
 const SINGLE_LABEL_CONTEXT_PADDING = 200; // fallback path only — see getPageCrop
 
 // A source PDF page is rendered whole (title/branding chrome included), and a page can
-// contain several separate photos/diagrams side by side (e.g. four different vertebra
-// views) — showing the whole page, or even every diagram on the page, forces the user to
-// hunt for which small region the current question is actually about. This crops the
-// display to just the ONE diagram the current label belongs to, so the diagram relevant to
-// THIS question — not the whole page or every diagram on it — is what fills the frame.
-// Recomputed per label (not held fixed for the whole page): consecutive labels usually
-// share a diagram (labels are stored in reading order), so the framing is stable in
-// practice, but correctly refocuses the moment the step crosses into a different diagram.
+// contain several separate labeled figures side by side (e.g. four different vertebra
+// views) — showing the whole page, or even every figure on it, forces the user to hunt for
+// which small region the current question is actually about. This crops the display to just
+// the ONE figure the current label belongs to, so the figure relevant to THIS question is
+// what fills the frame. Recomputed per label (not held fixed for the whole page):
+// consecutive labels usually share a figure (labels are stored in reading order), so the
+// framing is stable in practice, but correctly refocuses when the step crosses into a
+// different figure.
 //
-// Prefers `page.diagrams` — each photo/diagram's own bounding box, asked for directly from
-// the model (server/src/anatomy.js) rather than inferred from labels. This is the reliable
-// path: a single mislabeled or hallucinated label box can't drag the frame open, because
-// labels aren't involved in computing which region to show.
+// Prefers `page.diagrams` — each figure's bounding box, asked for directly from the model
+// (server/src/anatomy.js) rather than inferred from labels alone, so a single wayward label
+// can't drag the frame open. But the crop never trusts those boxes to contain the labels:
+// the model may box just the photo while the label text is printed in the margins around
+// it (that cut labels off in practice). So the crop is the figure box UNIONED with the
+// current label and every other label nearest to that same figure — the current label is
+// always in frame, and the labels around it stay visible for context.
 //
 // Falls back to a generous fixed-size window around just the current label for decks saved
-// before diagram regions were tracked — deliberately not a union of every label on the
-// page (that was tried and confirmed too fragile: a single wayward label box dragged the
-// frame open to include unrelated page chrome in practice), and not clustering by proximity
-// either, to keep the fallback simple for what's meant to be a temporary compatibility path.
+// before figure regions were tracked — deliberately not a union of every label on the page
+// (tried, and too fragile: one wayward label box dragged the frame open to include
+// unrelated page chrome), to keep the fallback simple for what's a compatibility path.
 export function getPageCrop(page, label) {
   const diagrams = page?.diagrams;
   if (diagrams && diagrams.length > 0) {
-    const match = label && diagrams.find((d) => centerWithin(d, label.box));
-    const [ymin, xmin, ymax, xmax] = match || unionBoxes(diagrams);
-    return padAndClampCrop(ymin, xmin, ymax, xmax);
+    if (!label) return padAndClampCrop(...unionBoxes(diagrams));
+
+    const index = nearestDiagramIndex(diagrams, label.box);
+    const figure = diagrams[index];
+    const boxes = [figure, label.box];
+    for (const other of page.labels || []) {
+      if (other === label) continue;
+      if (
+        nearestDiagramIndex(diagrams, other.box) === index &&
+        distanceToBox(figure, other.box) <= LABEL_ASSIGN_MAX_DISTANCE
+      ) {
+        boxes.push(other.box);
+      }
+    }
+    return padAndClampCrop(...unionBoxes(boxes));
   }
 
   if (label) {

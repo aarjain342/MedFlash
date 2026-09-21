@@ -582,6 +582,61 @@ User's call, after discussing comparables (Quizlet Plus ~$8/mo, Osmosis/Picmonic
   bulk cleanup action, even in test mode, even when "probably all test data" seems safe
   to assume from timestamps/patterns alone.
 
+## Anatomy Quiz + tablet layouts (2026-09-13 → 2026-09-20)
+
+Upload a labeled-diagram PDF (bone/structure photos with printed names on leader lines) →
+a vision model finds every label and its position → the quiz hides one label at a time,
+the user types the name, reveals it, and self-grades. Separate "Anatomy Quiz" nav section.
+
+**Where it lives**
+- Server: `server/src/anatomy.js` (prompt, parser, sanitizers, `extractAnatomyPage`) and
+  `POST /api/generate-anatomy-stream` in `index.js` (SSE like `/api/generate-stream`; charges
+  the same `'generation'` usage unit once per request; PDF-only; needs a vision provider).
+- Client: `AnatomyUploadPanel`, `pages/AnatomyView`, `AnatomyStudyView`, `lib/anatomyEngine.js`
+  (step order + crop math), `lib/anatomyApi.js`, anatomy functions in `lib/db.js`.
+- DB: `supabase/anatomy_quiz.sql` (run once in the SQL editor): `anatomy_decks` (pages jsonb,
+  image once per page, `created_at` is **bigint** — a timestamptz column rejected `Date.now()`)
+  and `anatomy_progress` (small per-deck state, kept separate so answering never rewrites the
+  big deck — the same mistake `StudyView` still makes, see incident #6).
+
+**Lessons that cost real time (don't relearn them)**
+- Labels are raster pixels — there's no PDF text layer to read. Boxes come back as
+  `[ymin, xmin, ymax, xmax]` on a 0–1000 scale **per axis independently**, so the two axes are
+  not the same length. A crop's aspect ratio is `(cropW / cropH) × (imageW / imageH)`; leaving
+  out the image aspect is what produced the "stretched" crops. `AnatomyStudyView` measures the
+  image's natural size on load and fits the crop with JS (`fitBox` + `ResizeObserver`).
+- The model replies in one-item-per-line text (`FIGURE …` / `LABEL … | text`), **not JSON**:
+  asking the lite model for 30–40+ labels as JSON failed ~half the time (dropped braces, stray
+  keys), and one bad character lost the page. `parseAnatomyResponse` also accepts JSON and
+  salvages broken JSON, because a fallback model may not follow the format.
+- The lite model sometimes loops on one line until the token limit (`LABEL … | T7` ×150).
+  Such a reply is flagged `looped`; `extractAnatomyPage` re-samples up to 3 times, keeps the
+  first clean one (else the fullest looped one — its leading labels are real). Provider
+  errors are *not* retried there; `generateWithFallback` already walked the chain.
+- Enforced in code, not just the prompt: figure captions ending in "view" are dropped,
+  same-text-same-spot repeats are dropped, and a wrapped label ("Pedicle of / vertebral arch")
+  must be reported once as the full phrase (the prompt says so; fragments made unanswerable cards).
+- Pages render at `scale: 3`, JPEG q72 (`ANATOMY_RENDER`) because the quiz zooms into a crop.
+  That's ~350KB/page (~4–5MB for a 36-page lecture with 13 diagram pages) — fine now, but a
+  very long lecture gets heavy; moving images to Supabase Storage is still the real fix (#2).
+
+**Known limitations**
+- Model boxes aren't pixel-exact: a few sit ~2–3% off their text, so the black box can miss
+  part of the printed label. Nothing cheap fixes this (no text layer to snap to).
+- Decks uploaded before 2026-09-20 have no `diagrams` and lower-res images — the study view
+  falls back to a label-centred crop, but re-uploading gives better crops and sharper images.
+- Borderline pages (a small figure, 3–6 labels) can come back `NONE` on one run and labeled on
+  the next. The first Gemini models in the chain are lite; thinking models further down can
+  spend their output budget on reasoning and return only a few labels.
+
+**Tablet/iPad layouts** — `AnatomyStudyView` is a full-screen portal overlay (image as the hero,
+controls beside it in landscape/desktop and below in portrait; `visualViewport` keeps the input
+above the iPad keyboard). Flashcard study and the USMLE quiz become full-screen on
+`(pointer: coarse), (max-width: 1100px)` with a top Exit bar; on a desktop they stay in the
+shell. Fixed alongside: `100dvh` instead of `100vh`, 16px inputs (iOS zooms anything smaller),
+44px touch targets, `text-size-adjust`, and phone overflow (buttons/chips wrapping instead of
+running off the card — note the base `button` rule sets `white-space: nowrap`, which children inherit).
+
 ## Working style notes for whoever picks this up
 
 - The user tests almost everything live (Vercel/Render production URLs), not just locally

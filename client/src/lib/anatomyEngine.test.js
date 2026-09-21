@@ -212,15 +212,46 @@ describe('getPageCrop', () => {
     assert.ok(onB[0] > 500, 'crop for the label on diagram B should be positioned over B, not A');
   });
 
-  test('falls back to the diagram union if the label does not clearly belong to any single diagram', () => {
-    // Imprecise boxes happen — the label's center lands in the gap between two diagrams.
+  test('a label printed outside the figure box (photo-only box) is still fully in frame', () => {
+    // Regression: the model boxed just the photo, while label text sits in the margins
+    // around it. Cropping to the box alone cut those labels off (confirmed live).
+    const photoOnly = [200, 400, 800, 600];
+    const leftLabel = { box: [300, 250, 320, 390] }; // printed left of the photo
+    const rightLabel = { box: [500, 610, 520, 760] }; // printed right of the photo
+    const page = { diagrams: [photoOnly], labels: [leftLabel, rightLabel] };
+    for (const label of [leftLabel, rightLabel]) {
+      const [cy0, cx0, cy1, cx1] = getPageCrop(page, label);
+      for (const l of page.labels) {
+        assert.ok(l.box[0] >= cy0 && l.box[2] <= cy1 && l.box[1] >= cx0 && l.box[3] <= cx1, 'every label around the figure stays in frame');
+      }
+    }
+  });
+
+  test('a label between two figures joins the nearest one instead of forcing both into frame', () => {
     const page = {
       diagrams: [[50, 50, 300, 300], [700, 700, 950, 950]],
       labels: [],
     };
-    const strayLabel = { box: [480, 480, 500, 500] }; // center at (490,490) — inside neither diagram
+    const strayLabel = { box: [480, 480, 500, 500] }; // center in the gap, nearer diagram A
     const [cy0, cx0, cy1, cx1] = getPageCrop(page, strayLabel);
-    assert.ok(cy0 < 50 && cy1 > 950 && cx0 < 50 && cx1 > 950, 'should fall back to the union of both diagrams');
+    assert.ok(cy0 <= 50 && cx0 <= 50, 'contains the nearest figure');
+    assert.ok(cy1 >= 500 && cx1 >= 500, 'the label itself is always in frame');
+    assert.ok(cy1 < 700 && cx1 < 700, 'but does not reach the other figure');
+  });
+
+  test('the current label is always in frame even when it is far from every figure', () => {
+    const page = { diagrams: [[50, 50, 300, 300]], labels: [] };
+    const wayward = { box: [900, 900, 920, 950] };
+    const [cy0, cx0, cy1, cx1] = getPageCrop(page, wayward);
+    assert.ok(wayward.box[0] >= cy0 && wayward.box[2] <= cy1 && wayward.box[1] >= cx0 && wayward.box[3] <= cx1);
+  });
+
+  test('a distant stray label does not stretch the crop for other labels on the same figure', () => {
+    const figure = [200, 300, 600, 700];
+    const near = { box: [300, 250, 320, 400] };
+    const stray = { box: [960, 960, 990, 999] }; // nearest to the only figure, but far away
+    const [cy0, cx0, cy1, cx1] = getPageCrop({ diagrams: [figure], labels: [near, stray] }, near);
+    assert.ok(cy1 < 900 && cx1 < 900, `crop should ignore the far-away stray, got ${[cy0, cx0, cy1, cx1]}`);
   });
 
   test('with no diagrams field, a specific label crops generously around just that label — not distant labels on the page', () => {

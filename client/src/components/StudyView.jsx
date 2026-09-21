@@ -64,8 +64,11 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
   return (
     <div className="panel study-panel">
       <div className="study-header">
+        <button className="ghost study-exit-top" onClick={onExit}>
+          <span aria-hidden="true">←</span> Exit
+        </button>
         <h2>{deck.name}</h2>
-        <span className="muted">{index + 1} / {queue.length}</span>
+        <span className="muted study-count">{index + 1} / {queue.length}</span>
       </div>
 
       <div className={`flashcard ${flipped ? 'flipped' : ''}`} onClick={() => setFlipped((f) => !f)}>
@@ -73,7 +76,7 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
           <div className="flashcard-face front">
             {current.topic && <span className="topic-tag">{current.topic}</span>}
             <p>{current.question}</p>
-            <span className="muted small">Click to flip</span>
+            <span className="muted small">Tap or click to flip</span>
           </div>
           <div className="flashcard-face back">
             <p className="card-answer">{current.answer}</p>
@@ -92,16 +95,17 @@ export default function StudyView({ deck, onUpdateDeck, onExit }) {
         </details>
       )}
 
-      {flipped ? (
-        <div className="answer-actions">
-          <button className="danger" onClick={() => handleAnswer(false)}>Didn't know it</button>
-          <button className="success" onClick={() => handleAnswer(true)}>Knew it</button>
-        </div>
-      ) : (
-        <button className="ghost" onClick={() => setFlipped(true)}>Show answer</button>
-      )}
-
-      <button className="link" onClick={onExit}>Exit study session</button>
+      <div className="study-actions">
+        {flipped ? (
+          <div className="answer-actions">
+            <button className="danger" onClick={() => handleAnswer(false)}>Didn't know it</button>
+            <button className="success" onClick={() => handleAnswer(true)}>Knew it</button>
+          </div>
+        ) : (
+          <button className="ghost study-show" onClick={() => setFlipped(true)}>Show answer</button>
+        )}
+        <button className="link study-exit-bottom" onClick={onExit}>Exit study session</button>
+      </div>
     </div>
   );
 }

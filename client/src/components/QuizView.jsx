@@ -422,6 +422,20 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   return (
     <div className="quiz-layout">
+      {/* Only shown when the quiz takes over the whole screen (tablets/narrow windows, see
+          App.css) — there the app's own navigation is covered, so this is the way out. */}
+      {!lockedIn && (
+        <div className="quiz-topbar">
+          <button className="ghost" onClick={onExit}>
+            <span aria-hidden="true">←</span> Exit
+          </button>
+          <span className="quiz-topbar-title">{deck.name}</span>
+          <span className="quiz-topbar-stats">
+            <span className="quiz-topbar-correct">✓ {stats.correct}</span>
+            <span className="quiz-topbar-wrong">✗ {stats.wrong}</span>
+          </span>
+        </div>
+      )}
       {lockedIn && (
         <div className="locked-in-bar">
           <div className="locked-in-timer">
