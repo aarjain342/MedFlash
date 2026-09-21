@@ -10,7 +10,7 @@ import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './ra
 import { proGenerationLimiter, proChatLimiter } from './planLimit.js';
 import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
 import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
-import { buildAnatomyLabelPrompt, parseAnatomyResponse, sanitizeAnatomyLabels, sanitizeDiagrams } from './anatomy.js';
+import { buildAnatomyLabelPrompt, extractAnatomyPage } from './anatomy.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
 import { stripe, billingConfigured } from './stripeClient.js';
 import { adminConfigured } from './supabaseAdmin.js';
@@ -72,6 +72,9 @@ app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can c
 const SLIDE_CONCURRENCY = 2;
 const TOPIC_CONCURRENCY = 3;
 const ANATOMY_CONCURRENCY = 2;
+// The quiz zooms into a crop of each page, so it needs more pixels than a whole-slide
+// flashcard image does (see extractPage). Roughly 2.4x the bytes per page at this setting.
+const ANATOMY_RENDER = { scale: 3, jpegQuality: 72, jpegOnly: true };
 const HEARTBEAT_MS = 15000;
 
 // Render sits behind Cloudflare, which kills a connection after too long with no new
@@ -270,16 +273,15 @@ app.post('/api/generate-anatomy-stream', requireAuth, generationLimiter.middlewa
 
   try {
     await runWithConcurrency(pageIndexes, ANATOMY_CONCURRENCY, async (pageIndex) => {
-      const { imageDataUrl } = source.getPage(pageIndex);
+      const { imageDataUrl } = source.getPage(pageIndex, ANATOMY_RENDER);
       if (!imageDataUrl) return { pageIndex, labels: [], diagrams: [], imageDataUrl: null };
 
-      const raw = await generateWithFallback(providerChain, {
-        imageDataUrl,
-        buildPrompt: (hasImage) => (hasImage ? buildAnatomyLabelPrompt(pageIndex, pageCount) : null),
-      });
-      const { diagrams: rawDiagrams, labels: rawLabels } = parseAnatomyResponse(raw);
-      const labels = sanitizeAnatomyLabels(rawLabels);
-      const diagrams = sanitizeDiagrams(rawDiagrams);
+      const { labels, diagrams } = await extractAnatomyPage(() =>
+        generateWithFallback(providerChain, {
+          imageDataUrl,
+          buildPrompt: (hasImage) => (hasImage ? buildAnatomyLabelPrompt(pageIndex, pageCount) : null),
+        })
+      );
       return { pageIndex, labels, diagrams, imageDataUrl };
     }, (index, result, err) => {
       if (err) {

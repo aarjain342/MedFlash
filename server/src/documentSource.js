@@ -23,5 +23,5 @@ export async function openSource(file) {
   // Default: PDF. Older uploads/clients don't send a distinguishing extension, so this
   // stays the fallback rather than requiring an exact ".pdf" match.
   const { doc, pageCount } = openPdf(file.buffer);
-  return { pageCount, getPage: (i) => extractPage(doc, i) };
+  return { pageCount, getPage: (i, options) => extractPage(doc, i, options) };
 }
