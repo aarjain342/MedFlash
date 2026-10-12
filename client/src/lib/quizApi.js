@@ -4,7 +4,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8787';
 
 // Streams USMLE-style quiz question generation, one SSE "topic" event per deck topic.
 // `onEvent` is called with { type, data } for: start | topic | topic-error | done | fatal-error.
-export async function generateQuizStream(cards, difficulty, onEvent) {
+// `options.skipTopics` lists topic names the student has chosen to avoid; they are left out.
+export async function generateQuizStream(cards, difficulty, onEvent, { skipTopics = [] } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (supabaseConfigured) {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -16,7 +17,7 @@ export async function generateQuizStream(cards, difficulty, onEvent) {
   const res = await fetch(`${API_BASE}/api/generate-quiz`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ cards, difficulty }),
+    body: JSON.stringify({ cards, difficulty, skipTopics }),
   });
 
   if (!res.ok || !res.body) {

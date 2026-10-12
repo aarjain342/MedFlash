@@ -2223,9 +2223,16 @@ html.study-locked body {
   padding: 13px 28px;
 }
 
-/* "Exit quiz" sits right after the submit/next button; give it some room. */
-.quiz-panel button.link {
-  margin-left: 14px;
+/* Skip question / Skip this topic / Exit quiz sit in a row under the submit button. */
+.quiz-skip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 10px;
+}
+
+.quiz-skip button.link {
+  padding: 8px 0;
 }
 
 .answer-actions {
@@ -2498,8 +2505,287 @@ html.study-locked body {
     font-size: 16px;
   }
 
-  /* The top bar has Exit here. */
-  .quiz-panel button.link {
+  /* The top bar has Exit here; the skip buttons stay. */
+  .quiz-panel button.link.quiz-exit {
     display: none;
+  }
+
+  .quiz-skip button.link {
+    min-height: 44px;
+  }
+}
+
+
+/* ---- Quiz: difficulty sets, skipping, memory aids, session summary ---------------------- */
+
+.difficulty-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.difficulty-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.difficulty-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  text-align: left;
+}
+
+.difficulty-option:not(:disabled):hover {
+  border-color: var(--primary);
+}
+
+.difficulty-option.active {
+  border-color: var(--primary);
+  background: var(--primary-tint);
+  color: var(--primary-dark);
+}
+
+.difficulty-option-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.difficulty-option-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.difficulty-option.active .difficulty-option-meta {
+  color: inherit;
+}
+
+.confirm-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 12px 14px;
+  background: #fef3c7;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.confirm-box p {
+  margin: 0;
+}
+
+.confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.undo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 18px;
+  padding: 10px 14px;
+  background: var(--primary-tint);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.undo-bar button.link {
+  padding: 0;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+.topic-tree-skipped,
+.question-tree-omitted {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--muted);
+}
+
+.topic-tree-item.skipped .topic-tree-name,
+.question-tree-omitted .question-tree-stem {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.question-tree-omitted .question-tree-stem {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.topic-tree-skipped button.link,
+.question-tree-omitted button.link {
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.memory-aid {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.memory-aid summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.memory-aid .eyebrow {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.memory-aid-text {
+  margin: 4px 0 0;
+  line-height: 1.5;
+}
+
+.memory-aid.open .memory-aid-text {
+  font-size: 15px;
+}
+
+.quiz-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.quiz-summary h2,
+.quiz-summary h3,
+.quiz-summary p {
+  margin: 0;
+}
+
+.summary-score {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.summary-percent {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--primary-dark);
+}
+
+.summary-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-block h3 {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.summary-list,
+.summary-plan {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-plan {
+  counter-reset: step;
+}
+
+.summary-plan li {
+  position: relative;
+  padding: 6px 0 6px 28px;
+  line-height: 1.5;
+}
+
+.summary-plan li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--primary-tint);
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 20px;
+}
+
+.summary-weak {
+  padding: 12px 14px;
+  background: #fdecea;
+  border-radius: 12px;
+}
+
+.summary-weak + .summary-weak {
+  margin-top: 4px;
+}
+
+.summary-weak-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.summary-missed {
+  padding: 8px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.summary-missed .memory-aid-text {
+  margin-top: 6px;
+}
+
+.summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+@media (pointer: coarse), (max-width: 1100px) {
+  /* The tablet layout stretches every primary button in the question panel full width;
+     the summary's buttons sit in a row instead. */
+  .quiz-summary .summary-actions .primary {
+    width: auto;
   }
 }
