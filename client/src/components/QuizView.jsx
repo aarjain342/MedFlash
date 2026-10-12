@@ -12,6 +12,7 @@ import {
 } from '../lib/quizEngine';
 import { loadQuizState, saveQuizState } from '../lib/db';
 import { recordActivity } from '../lib/streak';
+import { useKeys } from '../lib/useKeys';
 
 const PREFS_KEY = 'medflash:quizPrefs';
 const LOCKED_IN_EXIT_PASSWORD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1324';
@@ -283,6 +284,27 @@ export default function QuizView({ deck, onExit, onStudy }) {
   const topicSummaries = quizState ? getTopicSummaries(quizState) : [];
   const stats = quizState ? getOverallStats(quizState) : { correct: 0, wrong: 0, attempted: 0, accuracy: null };
 
+  // A–E or 1–5 choose an answer, Enter submits then continues, Esc leaves (not while locked in).
+  useKeys((e) => {
+    if (phase !== 'ready' || !current) return;
+    if (e.key === 'Escape') {
+      if (!lockedIn) onExit();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (feedback) handleNext();
+      else if (selected != null) handleSubmit();
+      return;
+    }
+    if (feedback) return;
+    const key = e.key.toLowerCase();
+    let pick = -1;
+    if (/^[a-e]$/.test(key)) pick = key.charCodeAt(0) - 97;
+    else if (/^[1-9]$/.test(key)) pick = Number(key) - 1;
+    if (pick >= 0 && pick < current.presented.options.length) setSelected(pick);
+  });
+
   if (phase === 'loading') {
     return (
       <div className="quiz-centered">
@@ -517,7 +539,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
                 onClick={handleToggleShuffle}
                 title="Toggle between slide order and shuffled question order"
               >
-                {quizState?.shuffle ? '🔀 Shuffled' : '≡ Slide order'}
+                {quizState?.shuffle ? 'Shuffled' : 'Slide order'}
               </button>
               <span className="quiz-difficulty-badge" title="Set when the quiz was generated">
                 {prefs.difficulty === 'easy' ? 'Easy' : 'Hard'}
@@ -639,9 +661,14 @@ export default function QuizView({ deck, onExit, onStudy }) {
                     key={i}
                     className={cls}
                     disabled={!!feedback}
-                    onClick={() => setSelected(i)}
+                    onClick={(e) => {
+                      setSelected(i);
+                      // Hand focus back to the page so Enter submits instead of re-clicking this option.
+                      e.currentTarget.blur();
+                    }}
                   >
-                    {opt}
+                    <span className="quiz-key" aria-hidden="true">{String.fromCharCode(65 + i)}</span>
+                    <span className="quiz-option-text">{opt}</span>
                   </button>
                 );
               })}
@@ -650,7 +677,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
             {feedback && (
               <div className={`quiz-feedback ${feedback.correct ? 'correct' : 'incorrect'}`}>
                 <p className="quiz-feedback-verdict">
-                  {feedback.correct ? "Correct!" : "Not quite — you'll see this topic again."}
+                  {feedback.correct ? 'Correct.' : 'Not quite. You’ll see this topic again.'}
                 </p>
                 <p>{feedback.explanation}</p>
               </div>
@@ -658,10 +685,12 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
             {!feedback ? (
               <button className="primary" disabled={selected == null} onClick={handleSubmit}>
-                Submit answer
+                Submit answer <kbd className="kbd-hint">Enter</kbd>
               </button>
             ) : (
-              <button className="primary" onClick={handleNext}>Next question</button>
+              <button className="primary" onClick={handleNext}>
+                Next question <kbd className="kbd-hint">Enter</kbd>
+              </button>
             )}
 
             {!lockedIn && <button className="link" onClick={onExit}>Exit quiz</button>}
@@ -670,8 +699,8 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
         {phase === 'complete' && (
           <div>
-            <h2>Quiz complete!</h2>
-            <p>You've mastered every topic in "{deck.name}" — nice work.</p>
+            <h2>Quiz complete</h2>
+            <p>You’ve mastered every topic in “{deck.name}”.</p>
             {!lockedIn && <button className="primary" onClick={onExit}>Back to decks</button>}
           </div>
         )}

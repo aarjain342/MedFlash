@@ -44,8 +44,7 @@ export default function ChatPanel({ messages, setMessages, input, setInput, send
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 && (
           <p className="muted small chat-empty">
-            Ask anything about the medical field — mechanisms, pathophysiology, drug classes,
-            board-style reasoning, whatever's on your mind while studying.
+            Ask about a mechanism, a drug class, or how to reason through a question.
           </p>
         )}
         {messages.map((m, i) => (
@@ -66,7 +65,7 @@ export default function ChatPanel({ messages, setMessages, input, setInput, send
       <div className="chat-input-row">
         <textarea
           className="chat-input"
-          placeholder="Ask a medical question…"
+          placeholder="Ask a medical question"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

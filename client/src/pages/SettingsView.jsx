@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import { getBillingStatus, startCheckout, openBillingPortal } from '../lib/billingApi';
+import ThemeSwitch from '../components/ThemeSwitch';
 
 function UsageLine({ label, used, limit }) {
-  if (limit == null) return <p className="muted small">{label}: unlimited</p>;
+  const percent = limit ? Math.min(100, (used / limit) * 100) : 0;
   return (
-    <p className="muted small">
-      {label}: {used} / {limit}
-    </p>
+    <div className="usage-line">
+      <div className="usage-line-text">
+        <span>{label}</span>
+        <span className="usage-line-figure">{limit == null ? 'Unlimited' : `${used} / ${limit}`}</span>
+      </div>
+      {limit != null && (
+        <div className="progress-bar">
+          <div className="progress-bar-fill" style={{ width: `${percent}%` }} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -52,45 +61,55 @@ function PlanPanel({ checkoutBanner }) {
   const isPro = status?.status === 'active' || status?.status === 'trialing';
 
   return (
-    <div className="panel">
+    <section className="panel">
       <h2>Plan</h2>
-      {checkoutBanner === 'success' && (
-        <p className="muted small">You're on MedFlash Pro — thanks for subscribing!</p>
-      )}
-      {checkoutBanner === 'cancelled' && <p className="muted small">Checkout cancelled — no charge was made.</p>}
+      {checkoutBanner === 'success' && <p className="warning">You’re on MedFlash Pro. Thanks for subscribing.</p>}
+      {checkoutBanner === 'cancelled' && <p className="warning">Checkout cancelled. You weren’t charged.</p>}
 
       {!status ? (
-        <p className="muted small">Loading…</p>
+        <p className="muted">Loading…</p>
       ) : isPro ? (
-        <>
-          <p>
-            <strong>MedFlash Pro</strong>
+        <div className="settings-stack">
+          <p className="plan-name">
+            <mark>MedFlash Pro</mark>
           </p>
           {status.currentPeriodEnd && (
-            <p className="muted small">Renews {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>
+            <p className="muted">Renews {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>
           )}
-          <button className="ghost" onClick={handleManage} disabled={busy}>
-            Manage subscription
-          </button>
-        </>
+          <div>
+            <button className="ghost" onClick={handleManage} disabled={busy}>
+              Manage subscription
+            </button>
+          </div>
+        </div>
       ) : (
-        <>
-          <p className="muted">Free plan</p>
+        <div className="settings-stack">
+          <p className="plan-name">Free plan</p>
           <UsageLine label="Decks" used={status.usage.decks.used} limit={status.usage.decks.limit} />
           <UsageLine label="AI generations this month" used={status.usage.generations.used} limit={status.usage.generations.limit} />
           <UsageLine label="Chat messages this month" used={status.usage.chat.used} limit={status.usage.chat.limit} />
-
-          <p className="muted small">MedFlash Pro — $15/month</p>
-
-          <button className="primary" onClick={handleUpgrade} disabled={busy}>
-            Upgrade to MedFlash Pro
-          </button>
-        </>
+          <p className="muted">MedFlash Pro removes every limit for $15 a month.</p>
+          <div>
+            <button className="primary" onClick={handleUpgrade} disabled={busy}>
+              Upgrade to Pro
+            </button>
+          </div>
+        </div>
       )}
       {error && <p className="error">{error}</p>}
-    </div>
+    </section>
   );
 }
+
+const SHORTCUTS = [
+  { keys: ['Ctrl', 'K'], what: 'Open the command palette (⌘K on a Mac)' },
+  { keys: ['Space'], what: 'Flip a flashcard, or reveal an anatomy label' },
+  { keys: ['1'], what: 'Grade a card as missed' },
+  { keys: ['2'], what: 'Grade a card as known' },
+  { keys: ['A', '–', 'E'], what: 'Choose an answer in a quiz (1 to 5 works too)' },
+  { keys: ['Enter'], what: 'Submit an answer, or move to the next question' },
+  { keys: ['Esc'], what: 'Leave a study session' },
+];
 
 export default function SettingsView({ user, guestMode, onSignOut }) {
   const checkoutBanner = new URLSearchParams(window.location.search).get('checkout');
@@ -106,25 +125,57 @@ export default function SettingsView({ user, guestMode, onSignOut }) {
 
   return (
     <>
-      <div className="panel">
-        <h2>Settings</h2>
-        {guestMode ? (
-          <p className="muted">
-            You're in guest mode — decks and quiz progress are saved only on this device. Sign up
-            for an account to sync them across devices.
-          </p>
-        ) : (
-          <>
-            <div className="settings-row">
-              <span className="muted">Signed in as</span>
-              <strong>{user?.email}</strong>
-            </div>
-            <button className="ghost" onClick={onSignOut}>Sign out</button>
-          </>
-        )}
-      </div>
+      <header className="page-head">
+        <div>
+          <h1>Settings</h1>
+        </div>
+      </header>
 
-      {!guestMode && <PlanPanel checkoutBanner={checkoutBanner} />}
+      <div className="settings-grid">
+        <section className="panel">
+          <h2>Account</h2>
+          {guestMode ? (
+            <p className="muted">
+              You’re in guest mode, so decks and quiz progress are saved only on this device. Sign up
+              for an account to sync them across devices.
+            </p>
+          ) : (
+            <div className="settings-stack">
+              <div className="settings-row">
+                <span className="eyebrow">Signed in as</span>
+                <strong>{user?.email}</strong>
+              </div>
+              <div>
+                <button className="ghost" onClick={onSignOut}>Sign out</button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <h2>Appearance</h2>
+          <div className="settings-stack">
+            <p className="muted">Follow your device, or pick a theme. It applies everywhere in MedFlash.</p>
+            <ThemeSwitch />
+          </div>
+        </section>
+
+        {!guestMode && <PlanPanel checkoutBanner={checkoutBanner} />}
+
+        <section className="panel shortcuts kbd-hint">
+          <h2>Keyboard</h2>
+          <dl className="shortcut-list">
+            {SHORTCUTS.map((s) => (
+              <div key={s.what}>
+                <dt>
+                  {s.keys.map((k, i) => (k === '–' ? <span key={i}>–</span> : <kbd key={i}>{k}</kbd>))}
+                </dt>
+                <dd>{s.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      </div>
     </>
   );
 }

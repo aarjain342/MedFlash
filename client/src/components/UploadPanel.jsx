@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { generateFlashcardsStream, waitForServer } from '../lib/api';
 import { initCardProgress } from '../lib/leitner';
+import Dropzone from './Dropzone';
 
 function makeId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -12,7 +13,7 @@ export default function UploadPanel({ onDeckCreated }) {
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [progress, setProgress] = useState({ done: 0, total: 0, cardCount: 0 });
-  const inputRef = useRef(null);
+  const [dropKey, setDropKey] = useState(0); // remounts the picker so the same file can be chosen again
   const inFlightRef = useRef(false);
 
   async function handleGenerate() {
@@ -91,7 +92,7 @@ export default function UploadPanel({ onDeckCreated }) {
       };
       await onDeckCreated(deck);
       setFile(null);
-      if (inputRef.current) inputRef.current.value = '';
+      setDropKey((k) => k + 1);
       setStatus('idle');
       if (failedSlides.length > 0) {
         setWarning(
@@ -107,24 +108,21 @@ export default function UploadPanel({ onDeckCreated }) {
   }
 
   return (
-    <div className="panel upload-panel">
-      <h2>Create a deck from your notes</h2>
-      <p className="muted">
-        Upload a PDF, PowerPoint, or Word document. MedFlash goes section by section — reading
-        both the text and (for PDFs) the slide image — and makes clear, consolidated flashcards
-        (with tables and memory tricks where they help) plus the source slide image attached
-        where available.
-      </p>
-
-      <label className="file-drop">
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-        />
-        {file ? file.name : 'Choose a PDF, PPTX, or DOCX…'}
-      </label>
+    <section className="panel upload-panel">
+      <Dropzone
+        key={dropKey}
+        file={file}
+        onFile={(f) => {
+          setFile(f);
+          setWarning('');
+        }}
+        onReject={() => setWarning('That file type isn’t supported. Use a PDF, PPTX or DOCX.')}
+        accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        extensions={['.pdf', '.pptx', '.docx']}
+        title="Drop lecture slides or notes here"
+        hint="PDF, PPTX or DOCX. Or click to choose a file."
+        disabled={status === 'working' || status === 'waking'}
+      />
 
       <button
         className="primary"
@@ -134,15 +132,12 @@ export default function UploadPanel({ onDeckCreated }) {
         {status === 'working'
           ? 'Generating flashcards…'
           : status === 'waking'
-            ? 'Waking up server…'
+            ? 'Starting server…'
             : 'Generate flashcards'}
       </button>
 
       {status === 'waking' && (
-        <p className="muted small">
-          The server's been idle and is spinning back up — this can take up to a minute on a free
-          host. Hang tight.
-        </p>
+        <p className="muted small">The server was idle and is starting up. This can take up to a minute.</p>
       )}
 
       {status === 'working' && progress.total > 0 && (
@@ -154,13 +149,13 @@ export default function UploadPanel({ onDeckCreated }) {
             />
           </div>
           <p className="muted small">
-            Slide {progress.done} / {progress.total} · {progress.cardCount} cards so far
+            Section {progress.done} of {progress.total} · {progress.cardCount} cards so far
           </p>
         </div>
       )}
 
       {status === 'error' && <p className="error">{error}</p>}
       {warning && <p className="warning">{warning}</p>}
-    </div>
+    </section>
   );
 }

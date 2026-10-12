@@ -1,116 +1,158 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Brand from './Brand';
+import CommandPalette from './CommandPalette';
+import ThemeSwitch from './ThemeSwitch';
 
-function Icon({ path, size = 20 }) {
+const NAV_ITEMS = [
+  { key: 'home', label: 'Home' },
+  { key: 'decks', label: 'Decks' },
+  { key: 'flashcards', label: 'Flashcards' },
+  { key: 'questions', label: 'Questions' },
+  { key: 'anatomy', label: 'Anatomy' },
+];
+
+function SearchIcon() {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={path} />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="square" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 5 5" />
     </svg>
   );
 }
 
-const ICONS = {
-  home: 'M4 11.5 12 4l8 7.5M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9',
-  decks: 'M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z',
-  flashcards: 'M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7ZM8 3h11a2 2 0 0 1 2 2v11',
-  questions:
-    'M9.1 9a3 3 0 1 1 4.6 2.5c-.9.6-1.7 1.1-1.7 2.5M12 18h.01M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4 3v-3H6a2 2 0 0 1-2-2V6Z',
-  anatomy:
-    'M3.8 18A2.2 2.2 0 1 0 8.2 18A2.2 2.2 0 1 0 3.8 18ZM5.8 15.5A2.2 2.2 0 1 0 10.2 15.5A2.2 2.2 0 1 0 5.8 15.5ZM13.8 8.5A2.2 2.2 0 1 0 18.2 8.5A2.2 2.2 0 1 0 13.8 8.5ZM15.8 6A2.2 2.2 0 1 0 20.2 6A2.2 2.2 0 1 0 15.8 6ZM9 14.5L15 9.5',
-  settings:
-    'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z',
-  signOut: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
-  collapse: 'M15 6l-6 6 6 6M5 4v16',
-  expand: 'M9 6l6 6-6 6M19 4v16',
-};
+function AccountMenu({ user, guestMode, onNavigate, onSignOut }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
 
-const NAV_ITEMS = [
-  { key: 'home', label: 'Home', icon: ICONS.home },
-  { key: 'decks', label: 'Decks', icon: ICONS.decks },
-  { key: 'flashcards', label: 'Flashcards', icon: ICONS.flashcards },
-  { key: 'questions', label: 'Questions', icon: ICONS.questions },
-  { key: 'anatomy', label: 'Anatomy Quiz', icon: ICONS.anatomy },
-  { key: 'settings', label: 'Settings', icon: ICONS.settings },
-];
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (!ref.current?.contains(e.target)) setOpen(false);
+    };
+    const onKeyDown = (e) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
 
-const COLLAPSE_KEY = 'medflash-sidebar-collapsed';
-
-// Persistent app-wide shell: sidebar nav on the left, whatever the current view is on the
-// right. Study/Quiz render inside the same content slot as the Decks view, so the sidebar
-// (and its nav state) stays visible and unaffected while moving between them.
-export default function AppShell({ activeView, onNavigate, user, guestMode, onSignOut, children }) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
-
-  function toggleCollapsed() {
-    setCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-      return next;
-    });
-  }
+  const email = user?.email || '';
+  const initial = guestMode ? 'G' : (email[0] || '?').toUpperCase();
 
   return (
-    <div className="app-shell">
-      <nav className={`app-sidebar ${collapsed ? 'collapsed' : ''}`}>
-        <div className="app-sidebar-top">
-          <div className="brand">
-            <span className="brand-mark" aria-hidden="true" />
-            {!collapsed && <span className="brand-name">MedFlash</span>}
+    <div className="account-menu" ref={ref}>
+      <button
+        className="account-button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account menu"
+      >
+        {initial}
+      </button>
+      {open && (
+        <div className="account-popover" role="menu">
+          <div className="account-who">
+            <span className="eyebrow">{guestMode ? 'Guest mode' : 'Signed in as'}</span>
+            <span className="account-email">{guestMode ? 'Decks stay on this device' : email}</span>
           </div>
           <button
-            className="sidebar-collapse-toggle"
-            onClick={toggleCollapsed}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="account-item"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onNavigate('settings');
+            }}
           >
-            <Icon path={collapsed ? ICONS.expand : ICONS.collapse} size={16} />
+            Settings
           </button>
-        </div>
-
-        <ul className="sidebar-nav-list">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.key}>
-              <button
-                className={`sidebar-nav-item ${activeView === item.key ? 'active' : ''}`}
-                onClick={() => onNavigate(item.key)}
-                title={collapsed ? item.label : undefined}
-              >
-                <Icon path={item.icon} />
-                {!collapsed && <span>{item.label}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <div className="sidebar-footer">
-          {!collapsed && (
-            <div className="sidebar-user" title={guestMode ? undefined : user?.email}>
-              {guestMode ? 'Guest mode' : user?.email}
-            </div>
-          )}
+          <div className="account-theme">
+            <span className="eyebrow">Theme</span>
+            <ThemeSwitch />
+          </div>
           {!guestMode && (
             <button
-              className="sidebar-nav-item sidebar-signout"
-              onClick={onSignOut}
-              title={collapsed ? 'Sign out' : undefined}
+              className="account-item account-signout"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onSignOut();
+              }}
             >
-              <Icon path={ICONS.signOut} />
-              {!collapsed && <span>Sign out</span>}
+              Sign out
             </button>
           )}
         </div>
-      </nav>
+      )}
+    </div>
+  );
+}
+
+// Persistent app frame: a top bar with the section tabs on wide screens, a bottom tab bar on
+// phones and portrait tablets, and Ctrl/Cmd+K to jump anywhere. Study, Quiz and the Anatomy
+// Quiz render inside the same content slot, so the active tab stays correct while they're open.
+export default function AppShell({ activeView, onNavigate, user, guestMode, onSignOut, commands, children }) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const shortcutLabel = useMemo(() => (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘K' : 'Ctrl K'), []);
+
+  return (
+    <div className="app-shell">
+      <header className="app-topbar">
+        <div className="app-topbar-inner">
+          <Brand />
+          <nav className="app-nav" aria-label="Sections">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                className={`app-nav-item ${activeView === item.key ? 'active' : ''}`}
+                aria-current={activeView === item.key ? 'page' : undefined}
+                onClick={() => onNavigate(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="app-topbar-actions">
+            <button className="palette-trigger" onClick={() => setPaletteOpen(true)} aria-label="Search and commands">
+              <SearchIcon />
+              <span className="palette-trigger-label">Search</span>
+              <kbd className="kbd-hint">{shortcutLabel}</kbd>
+            </button>
+            <AccountMenu user={user} guestMode={guestMode} onNavigate={onNavigate} onSignOut={onSignOut} />
+          </div>
+        </div>
+      </header>
 
       <main className="app-shell-content stagger-in">{children}</main>
+
+      <nav className="app-tabbar" aria-label="Sections">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            className={activeView === item.key ? 'active' : ''}
+            aria-current={activeView === item.key ? 'page' : undefined}
+            onClick={() => onNavigate(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands || []} />
     </div>
   );
 }

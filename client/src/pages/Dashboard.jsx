@@ -23,6 +23,8 @@ import {
 } from '../lib/db';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
+import { buildCommands } from '../lib/commandList';
+import { setThemePreference } from '../lib/theme';
 
 export default function Dashboard() {
   const [searchParams] = useSearchParams();
@@ -234,7 +236,6 @@ export default function Dashboard() {
   } else {
     content = (
       <HomeView
-        userLabel={guestMode ? null : user?.email?.split('@')[0]}
         decks={decks}
         onNavigate={handleNavigate}
         onStudy={handleStudy}
@@ -243,6 +244,20 @@ export default function Dashboard() {
     );
   }
 
+  const commands = buildCommands({
+    decks,
+    anatomyDecks,
+    guestMode,
+    actions: {
+      navigate: handleNavigate,
+      study: handleStudy,
+      quiz: handleQuiz,
+      studyAnatomy: handleStudyAnatomy,
+      setTheme: setThemePreference,
+      signOut,
+    },
+  });
+
   return (
     <AppShell
       activeView={activeView}
@@ -250,6 +265,7 @@ export default function Dashboard() {
       user={user}
       guestMode={guestMode}
       onSignOut={signOut}
+      commands={commands}
     >
       {decksError && (
         <div className="deck-load-error">

@@ -1,47 +1,62 @@
 import AnatomyUploadPanel from '../components/AnatomyUploadPanel';
+import { deckHue } from '../lib/deckColor';
 
 export default function AnatomyView({ decks, decksLoading, busyDeckId, onDeckCreated, onStudy, onDelete }) {
   return (
     <>
+      <header className="page-head">
+        <div>
+          <h1>Anatomy quiz</h1>
+          <p>
+            Upload a lecture PDF with labeled diagrams. MedFlash finds every label, hides them one at
+            a time, and you type each name from memory.
+          </p>
+        </div>
+      </header>
+
       <AnatomyUploadPanel onDeckCreated={onDeckCreated} />
 
-      <div className="panel">
-        <h2>Your anatomy quizzes</h2>
+      <section>
+        <div className="section-head">
+          <h2>Your anatomy quizzes</h2>
+          {!decksLoading && <span className="muted small">{decks.length}</span>}
+        </div>
         {decksLoading ? (
           <div className="decks-loading">
             <span className="spinner" aria-hidden="true" />
-            <span className="muted">Loading your anatomy quizzes…</span>
+            <span>Loading…</span>
           </div>
-        ) : !decks.length ? (
-          <p className="muted">No anatomy quizzes yet. Upload a labeled diagram PDF to create your first one.</p>
+        ) : decks.length === 0 ? (
+          <p className="muted">Nothing here yet. Drop a labeled-diagram PDF above to make your first quiz.</p>
         ) : (
-          <div className="deck-list">
+          <ul className="ledger">
             {decks.map((deck) => {
               const detailLoading = !deck.pages;
               const labelCount = detailLoading ? 0 : deck.pages.reduce((sum, p) => sum + p.labels.length, 0);
               const isBusy = busyDeckId === deck.id;
               return (
-                <div className={`deck-card ${isBusy ? 'is-busy' : ''}`} key={deck.id}>
-                  <div className="deck-card-main">
+                <li className={`ledger-row ${isBusy ? 'is-busy' : ''}`} data-hue={deckHue(deck.id)} key={deck.id}>
+                  <span className="deck-chip" aria-hidden="true" />
+                  <div className="ledger-main">
                     <h3>{deck.name}</h3>
-                    <p className="muted">
-                      {detailLoading ? 'Loading…' : `${deck.pages.length} pages · ${labelCount} structures`}
+                    <p className="muted small">
+                      {detailLoading ? 'Loading…' : `${deck.pages.length} pages · ${labelCount} labels`}
                     </p>
                   </div>
-                  <div className="deck-card-actions">
-                    <button className="primary" disabled={isBusy || detailLoading} onClick={() => onStudy(deck)}>
+                  <div className="ledger-actions">
+                    <button className="primary small" disabled={isBusy || detailLoading} onClick={() => onStudy(deck)}>
                       Study
                     </button>
-                    <button className="ghost" disabled={isBusy} onClick={() => onDelete(deck.id)}>
+                    <button className="link small delete-link" disabled={isBusy} onClick={() => onDelete(deck.id)}>
                       {isBusy ? 'Deleting…' : 'Delete'}
                     </button>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
     </>
   );
 }

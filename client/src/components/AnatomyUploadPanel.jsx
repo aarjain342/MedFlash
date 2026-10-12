@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { generateAnatomyStream } from '../lib/anatomyApi';
 import { waitForServer } from '../lib/api';
+import Dropzone from './Dropzone';
 
 function makeId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -12,7 +13,7 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [progress, setProgress] = useState({ done: 0, total: 0, labelCount: 0 });
-  const inputRef = useRef(null);
+  const [dropKey, setDropKey] = useState(0); // remounts the picker so the same file can be chosen again
   const inFlightRef = useRef(false);
 
   async function handleGenerate() {
@@ -75,7 +76,7 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
       };
       await onDeckCreated(deck);
       setFile(null);
-      if (inputRef.current) inputRef.current.value = '';
+      setDropKey((k) => k + 1);
       setStatus('idle');
       if (failedPages.length > 0) {
         setWarning(
@@ -91,23 +92,21 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
   }
 
   return (
-    <div className="panel upload-panel">
-      <h2>Create an anatomy quiz from a labeled diagram PDF</h2>
-      <p className="muted">
-        Upload a lecture PDF with labeled anatomy photos or diagrams. MedFlash scans every
-        page, finds the ones with labeled structures, and builds a quiz that hides one label
-        at a time so you can test yourself on the whole document.
-      </p>
-
-      <label className="file-drop">
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,application/pdf"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-        />
-        {file ? file.name : 'Choose a PDF…'}
-      </label>
+    <section className="panel upload-panel">
+      <Dropzone
+        key={dropKey}
+        file={file}
+        onFile={(f) => {
+          setFile(f);
+          setWarning('');
+        }}
+        onReject={() => setWarning('Anatomy quizzes need a PDF.')}
+        accept=".pdf,application/pdf"
+        extensions={['.pdf']}
+        title="Drop a labeled-diagram PDF here"
+        hint="or click to choose a file"
+        disabled={status === 'working' || status === 'waking'}
+      />
 
       <button
         className="primary"
@@ -117,15 +116,12 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
         {status === 'working'
           ? 'Finding labeled diagrams…'
           : status === 'waking'
-            ? 'Waking up server…'
+            ? 'Starting server…'
             : 'Create anatomy quiz'}
       </button>
 
       {status === 'waking' && (
-        <p className="muted small">
-          The server's been idle and is spinning back up — this can take up to a minute on a free
-          host. Hang tight.
-        </p>
+        <p className="muted small">The server was idle and is starting up. This can take up to a minute.</p>
       )}
 
       {status === 'working' && progress.total > 0 && (
@@ -137,13 +133,13 @@ export default function AnatomyUploadPanel({ onDeckCreated }) {
             />
           </div>
           <p className="muted small">
-            Page {progress.done} / {progress.total} · {progress.labelCount} structures found so far
+            Page {progress.done} of {progress.total} · {progress.labelCount} labels found so far
           </p>
         </div>
       )}
 
       {status === 'error' && <p className="error">{error}</p>}
       {warning && <p className="warning">{warning}</p>}
-    </div>
+    </section>
   );
 }

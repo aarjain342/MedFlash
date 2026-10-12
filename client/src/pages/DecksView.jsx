@@ -4,14 +4,24 @@ import DeckList from '../components/DeckList';
 export default function DecksView({ decks, decksLoading, busyDeckId, onDeckCreated, onStudy, onQuiz, onDelete }) {
   return (
     <>
+      <header className="page-head">
+        <div>
+          <h1>Decks</h1>
+          <p>Upload lecture slides or notes and MedFlash turns them into a deck of flashcards.</p>
+        </div>
+      </header>
+
       <UploadPanel onDeckCreated={onDeckCreated} />
 
-      <div className="panel">
-        <h2>Your decks</h2>
+      <section>
+        <div className="section-head">
+          <h2>Your decks</h2>
+          {!decksLoading && <span className="muted small">{decks.length}</span>}
+        </div>
         {decksLoading ? (
           <div className="decks-loading">
             <span className="spinner" aria-hidden="true" />
-            <span className="muted">Loading your decks…</span>
+            <span>Loading your decks…</span>
           </div>
         ) : (
           <DeckList
@@ -22,13 +32,7 @@ export default function DecksView({ decks, decksLoading, busyDeckId, onDeckCreat
             onDelete={onDelete}
           />
         )}
-      </div>
-
-      {/* Reserved for upcoming deck-management tools (folders, tags, sharing, etc.) */}
-      <div className="panel deck-more-placeholder">
-        <h3>More coming here</h3>
-        <p className="muted small">This space is reserved for upcoming deck management tools.</p>
-      </div>
+      </section>
     </>
   );
 }

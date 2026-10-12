@@ -10,6 +10,7 @@ import {
 } from '../lib/anatomyEngine';
 import { loadAnatomyProgress, saveAnatomyProgress } from '../lib/db';
 import { recordActivity } from '../lib/streak';
+import { useKeys } from '../lib/useKeys';
 
 // A source PDF page is rendered whole (title/branding chrome included) and can contain
 // several separate diagrams — getPageCrop (anatomyEngine.js) picks just the one diagram
@@ -206,6 +207,16 @@ export default function AnatomyStudyView({ deck, onExit }) {
 
   const stats = quizState ? getStats(quizState) : { correct: 0, wrong: 0, attempted: 0 };
 
+  // After a reveal: 1 (or ←) = missed, 2 (or →) = got it. Esc leaves at any point.
+  useKeys((e) => {
+    if (e.key === 'Escape') {
+      onExit();
+    } else if (phase === 'ready' && revealed) {
+      if (e.key === '1' || e.key === 'ArrowLeft') handleGrade(false);
+      else if (e.key === '2' || e.key === 'ArrowRight') handleGrade(true);
+    }
+  });
+
   let body;
   if (phase === 'loading') {
     body = (
@@ -220,7 +231,7 @@ export default function AnatomyStudyView({ deck, onExit }) {
         <div className="panel anatomy-done">
           <h2>{deck.name}</h2>
           <p>
-            You've gone through every structure in this quiz — {stats.correct} / {stats.attempted} right.
+            That’s every label in this quiz. You got {stats.correct} of {stats.attempted} right.
           </p>
           <button className="primary anatomy-cta" onClick={onExit}>Back to anatomy quizzes</button>
         </div>
@@ -276,7 +287,7 @@ export default function AnatomyStudyView({ deck, onExit }) {
                     ref={inputRef}
                     type="text"
                     className="anatomy-input"
-                    placeholder="Type what you think it is…"
+                    placeholder="Type the label"
                     value={guess}
                     autoComplete="off"
                     autoCorrect="off"
@@ -303,8 +314,12 @@ export default function AnatomyStudyView({ deck, onExit }) {
                   </div>
                 </div>
                 <div className="anatomy-grade">
-                  <button className="danger anatomy-cta" onClick={() => handleGrade(false)}>Missed it</button>
-                  <button className="success anatomy-cta" onClick={() => handleGrade(true)}>Got it</button>
+                  <button className="danger anatomy-cta" onClick={() => handleGrade(false)}>
+                    Missed it <kbd className="kbd-hint">1</kbd>
+                  </button>
+                  <button className="success anatomy-cta" onClick={() => handleGrade(true)}>
+                    Got it <kbd className="kbd-hint">2</kbd>
+                  </button>
                 </div>
               </div>
             )}

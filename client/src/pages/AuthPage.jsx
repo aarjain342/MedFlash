@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { supabaseConfigured } from '../lib/supabaseClient';
+import Brand from '../components/Brand';
 
 export default function AuthPage({ mode }) {
   const isSignup = mode === 'signup';
@@ -41,70 +42,77 @@ export default function AuthPage({ mode }) {
 
   return (
     <div className="auth-page">
-      <Link to="/" className="brand auth-brand">
-        <span className="brand-mark" aria-hidden="true" />
-        <span className="brand-name">MedFlash</span>
-      </Link>
-
-      <div className="auth-card panel">
-        <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
-        <p className="muted">
-          {isSignup ? 'Start turning lecture PDFs into flashcards.' : 'Sign in to your dashboard.'}
-        </p>
-
-        {!supabaseConfigured && (
-          <p className="warning">
-            Accounts aren't set up yet — sign-in isn't wired to anything real. You can jump straight
-            to the dashboard for now.
+      <aside className="auth-aside">
+        <Brand as={Link} to="/" />
+        <div className="auth-aside-copy">
+          <h1>
+            Slides in.
             <br />
-            <Link to="/dashboard" className="pill-button-inline">Continue to dashboard →</Link>
-          </p>
-        )}
+            <mark>Study material</mark>
+            <br />
+            out.
+          </h1>
+          <p>Flashcards, board-style questions and anatomy quizzes, built from your own lecture files.</p>
+        </div>
+        <p className="auth-aside-foot">Free to start. No card needed.</p>
+      </aside>
 
-        {status === 'check-email' ? (
-          <p className="auth-check-email">
-            Almost there — check <strong>{email}</strong> for a confirmation link before signing in.
-          </p>
-        ) : (
-          <form onSubmit={handleSubmit} className="auth-form">
-            <label>
-              Email
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={isSignup ? 'new-password' : 'current-password'}
-              />
-            </label>
+      <main className="auth-main">
+        <div className="auth-card">
+          <h2>{isSignup ? 'Create an account' : 'Sign in'}</h2>
 
-            {error && <p className="error">{error}</p>}
-
-            <button className="primary auth-submit" disabled={status === 'working'}>
-              {status === 'working' ? 'Please wait…' : isSignup ? 'Sign up' : 'Sign in'}
-            </button>
-          </form>
-        )}
-
-        <p className="auth-switch">
-          {isSignup ? (
-            <>Already have an account? <Link to="/login">Sign in</Link></>
-          ) : (
-            <>Don't have an account? <Link to="/signup">Sign up</Link></>
+          {!supabaseConfigured && (
+            <p className="warning">
+              Accounts aren’t set up here yet, so sign-in isn’t connected to anything.{' '}
+              <Link to="/dashboard">Continue to the dashboard</Link>
+            </p>
           )}
-        </p>
-      </div>
+
+          {status === 'check-email' ? (
+            <p className="auth-check-email">
+              Check <strong>{email}</strong> for a confirmation link, then sign in.
+            </p>
+          ) : (
+            <form onSubmit={handleSubmit} className="auth-form">
+              <label>
+                <span className="eyebrow">Email</span>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                />
+              </label>
+              <label>
+                <span className="eyebrow">Password</span>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={isSignup ? 'new-password' : 'current-password'}
+                />
+              </label>
+
+              {error && <p className="error">{error}</p>}
+
+              <button className="primary auth-submit" disabled={status === 'working'}>
+                {status === 'working' ? 'One moment…' : isSignup ? 'Create account' : 'Sign in'}
+              </button>
+            </form>
+          )}
+
+          <p className="auth-switch">
+            {isSignup ? (
+              <>Already have an account? <Link to="/login">Sign in</Link></>
+            ) : (
+              <>New here? <Link to="/signup">Create an account</Link></>
+            )}
+          </p>
+        </div>
+      </main>
     </div>
   );
 }

@@ -20,15 +20,21 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
   }
 
   return (
-    <div className="panel">
-      <h2>Flashcards</h2>
+    <>
+      <header className="page-head">
+        <div>
+          <h1>Flashcards</h1>
+          <p>Browse the cards in a deck, start a study session, or export it to Anki.</p>
+        </div>
+      </header>
+
       {decksLoading ? (
         <div className="decks-loading">
           <span className="spinner" aria-hidden="true" />
-          <span className="muted">Loading…</span>
+          <span>Loading…</span>
         </div>
       ) : decks.length === 0 ? (
-        <p className="muted">No decks yet — generate one from the Decks page first.</p>
+        <p className="muted">No decks yet. Create one on the Decks page first.</p>
       ) : (
         <>
           <div className="deck-picker">
@@ -36,10 +42,11 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
               <button
                 key={d.id}
                 className={`deck-picker-item ${selectedId === d.id ? 'active' : ''}`}
+                aria-pressed={selectedId === d.id}
                 onClick={() => setSelectedId(d.id)}
               >
-                {d.name}
-                <span className="muted small">{d.cards ? `${d.cards.length} cards` : 'Loading…'}</span>
+                <span className="deck-picker-name">{d.name}</span>
+                <span className="deck-picker-count">{d.cards ? `${d.cards.length} cards` : 'Loading…'}</span>
               </button>
             ))}
           </div>
@@ -47,7 +54,7 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
           {exportError && <p className="error">{exportError}</p>}
 
           {selected && (
-            <div className="flashcard-browser">
+            <section className="flashcard-browser">
               <div className="flashcard-browser-header">
                 <h3>{selected.name}</h3>
                 <div className="flashcard-browser-actions">
@@ -63,7 +70,7 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                     disabled={busyDeckId === selected.id || !selected.cards}
                     onClick={() => onQuiz?.(selected)}
                   >
-                    USMLE Quiz
+                    USMLE quiz
                   </button>
                   <button
                     className="ghost"
@@ -73,7 +80,7 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                     {exportingId === selected.id ? 'Exporting…' : 'Export to Anki'}
                   </button>
                   <button
-                    className="ghost"
+                    className="link delete-link"
                     disabled={busyDeckId === selected.id}
                     onClick={() => onDelete?.(selected.id)}
                   >
@@ -87,20 +94,20 @@ export default function FlashcardsView({ decks, decksLoading, onStudy, onQuiz, o
                     <div key={c.id} className="flashcard-row">
                       {c.topic && <span className="flashcard-row-topic">{c.topic}</span>}
                       <p className="flashcard-row-q">{c.question}</p>
-                      <p className="flashcard-row-a muted">{c.answer}</p>
+                      <p className="flashcard-row-a">{c.answer}</p>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="decks-loading">
                   <span className="spinner" aria-hidden="true" />
-                  <span className="muted">Loading cards…</span>
+                  <span>Loading cards…</span>
                 </div>
               )}
-            </div>
+            </section>
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
