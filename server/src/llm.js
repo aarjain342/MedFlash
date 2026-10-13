@@ -27,7 +27,14 @@ function parseSuggestedRetryMs(message) {
 // to skip that provider entirely (e.g. no text and no image to work with). `imageDataUrl`
 // is optional — omit it for text-only generation (quiz questions), since vision support
 // is only relevant when there's actually an image to attach (slide generation).
-export async function generateWithFallback(providers, { imageDataUrl, buildPrompt }) {
+//
+// `purpose` labels the call and is handed to the provider's modelFallbackChain(purpose), so a
+// provider COULD order models per job. None do: on a free-tier key the stronger models were
+// slower (about a minute per quiz topic) and mostly failed on quota, so lite-first stays best.
+// `maxOutputTokens` raises the reply cap for jobs whose answer is long. Each call logs which
+// model answered (or why one failed), so a quality drop can be traced to the fallback chain
+// having slid down to a weaker model after the first one hit its quota.
+export async function generateWithFallback(providers, { imageDataUrl, buildPrompt, purpose, maxOutputTokens }) {
   let lastErr;
 
   for (const provider of providers) {
@@ -35,14 +42,18 @@ export async function generateWithFallback(providers, { imageDataUrl, buildPromp
     const prompt = buildPrompt(!!image);
     if (!prompt) continue;
 
-    const models = provider.modelFallbackChain ? provider.modelFallbackChain() : [undefined];
+    const models = provider.modelFallbackChain ? provider.modelFallbackChain(purpose) : [undefined];
     for (const model of models) {
       for (let attempt = 0; attempt < RETRIES_PER_MODEL; attempt++) {
         try {
           await acquireSlot();
-          return await provider.generateText(prompt, { image, model });
+          const startedAt = Date.now();
+          const text = await provider.generateText(prompt, { image, model, maxOutputTokens });
+          console.log(`[llm] ok purpose=${purpose || 'general'} ${provider.name}/${model ?? 'default'} ${Date.now() - startedAt}ms`);
+          return text;
         } catch (err) {
           lastErr = err;
+          console.log(`[llm] fail purpose=${purpose || 'general'} ${provider.name}/${model ?? 'default'}: ${String(err.message || err).slice(0, 90)}`);
           const isTransient = /overloaded|502|503|504/i.test(err.message || '');
 
           if (isTransient && attempt < RETRIES_PER_MODEL - 1) {

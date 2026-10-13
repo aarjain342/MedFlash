@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { generateQuizStream } from '../lib/quizApi';
 import {
   initQuizState,
@@ -7,16 +7,34 @@ import {
   presentQuestion,
   getCurrentQuestion,
   submitAnswer,
+  omitQuestion,
+  restoreQuestion,
+  skipTopic,
+  restoreTopic,
   getTopicSummaries,
   getOverallStats,
+  getSessionSummary,
 } from '../lib/quizEngine';
+import {
+  toStore,
+  emptyStore,
+  activeSet,
+  hasSet,
+  putSet,
+  switchTo,
+  skippedTopicNames,
+  normalizeDifficulty,
+} from '../lib/quizSets';
 import { loadQuizState, saveQuizState } from '../lib/db';
 import { recordActivity } from '../lib/streak';
+import DifficultySwitch from './DifficultySwitch';
+import QuizSummary from './QuizSummary';
 import { useKeys } from '../lib/useKeys';
 
 const PREFS_KEY = 'medflash:quizPrefs';
 const LOCKED_IN_EXIT_PASSWORD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1324';
 const LOCKED_IN_DURATIONS = [30, 60, 90];
+const DIFFICULTY_LABEL = { hard: 'Hard', easy: 'Easy' };
 
 function loadPrefs() {
   try {
@@ -59,6 +77,7 @@ function formatClock(ms) {
 export default function QuizView({ deck, onExit, onStudy }) {
   const [phase, setPhase] = useState('loading'); // loading | setup | generating | ready | complete | error
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+  const [genDifficulty, setGenDifficulty] = useState('hard');
   const [liveTopics, setLiveTopics] = useState([]); // [{ name, questions, error }] — grows as SSE events arrive
   const [bgGenerating, setBgGenerating] = useState(false);
   const [bgGenError, setBgGenError] = useState('');
@@ -67,11 +86,14 @@ export default function QuizView({ deck, onExit, onStudy }) {
   const [questionsOpen, setQuestionsOpen] = useState(true);
   const [sidebarMinimized, setSidebarMinimized] = useState(false);
   const [error, setError] = useState('');
-  const [quizState, setQuizState] = useState(null);
+  const [canResume, setCanResume] = useState(false); // a failed generation left an earlier set to go back to
   const [current, setCurrent] = useState(null); // { topicName, tier, presented }
   const [selected, setSelected] = useState(null);
-  const [feedback, setFeedback] = useState(null); // { correct, explanation }
+  const [feedback, setFeedback] = useState(null); // { correct, explanation, memoryAid }
   const [prefs, setPrefs] = useState(loadPrefs);
+  const [confirm, setConfirm] = useState(null); // { kind: 'generate' | 'regenerate', difficulty }
+  const [undo, setUndo] = useState(null); // { message, run } for the last thing the student removed
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // Locked-in mode
   const [lockedIn, setLockedIn] = useState(null); // { endsAt, durationMin } | null
@@ -83,10 +105,22 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   const startedRef = useRef(false);
   const phaseRef = useRef('loading');
+  // The deck's saved quiz: an easy set and/or a hard set (see quizSets.js). The engine mutates the
+  // active set in place, so it lives in a ref and `bump` re-renders after each change.
+  const storeRef = useRef(null);
+  const lastTargetRef = useRef('hard');
+  const [, bump] = useReducer((n) => n + 1, 0);
+
+  const store = storeRef.current;
+  const quizState = store ? activeSet(store) : null;
 
   function updatePhase(p) {
     phaseRef.current = p;
     setPhase(p);
+  }
+
+  function persist() {
+    if (storeRef.current) void saveQuizState(deck.id, storeRef.current);
   }
 
   useEffect(() => {
@@ -111,17 +145,34 @@ export default function QuizView({ deck, onExit, onStudy }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockedIn]);
 
+  // The "removed" notice (with its Undo) goes away on its own.
+  useEffect(() => {
+    if (!undo) return undefined;
+    const id = setTimeout(() => setUndo(null), 10000);
+    return () => clearTimeout(id);
+  }, [undo]);
+
+  // Puts the next question from `state` on screen, or the finish screen when there is none.
+  function showQuestion(state) {
+    setSelected(null);
+    setFeedback(null);
+    const next = state ? getCurrentQuestion(state) : null;
+    if (next) {
+      setCurrent(next);
+      updatePhase('ready');
+    } else {
+      setCurrent(null);
+      updatePhase('complete');
+    }
+  }
+
   async function bootstrap() {
     const saved = await loadQuizState(deck.id);
-    if (saved) {
-      setQuizState(saved);
-      const next = getCurrentQuestion(saved);
-      if (!next) {
-        updatePhase('complete');
-      } else {
-        setCurrent(next);
-        updatePhase('ready');
-      }
+    const loaded = toStore(saved, prefs.difficulty);
+    if (loaded) {
+      storeRef.current = loaded;
+      lastTargetRef.current = loaded.active;
+      showQuestion(activeSet(loaded));
       return;
     }
     updatePhase('setup');
@@ -135,7 +186,18 @@ export default function QuizView({ deck, onExit, onStudy }) {
     });
   }
 
-  async function generate() {
+  async function generate(difficulty) {
+    const target = normalizeDifficulty(difficulty);
+    lastTargetRef.current = target;
+    setGenDifficulty(target);
+    setConfirm(null);
+    setSummaryOpen(false);
+    setUndo(null);
+    // If this fails before anything arrives, the student can go back to the set they had.
+    setCanResume(Boolean(storeRef.current && activeSet(storeRef.current)));
+    // "Avoid this topic" holds when a new set is generated.
+    const skipTopics = skippedTopicNames(storeRef.current);
+
     updatePhase('generating');
     setError('');
     setBgGenError('');
@@ -146,58 +208,59 @@ export default function QuizView({ deck, onExit, onStudy }) {
     let localState = null;
 
     try {
-      // Only topic/question/answer feed the quiz prompt — strip everything else (notably
-      // the base64 slide images) so the request body stays small regardless of deck size.
+      // Only what the quiz prompt uses goes up: strip everything else (notably the base64 slide
+      // images) so the request stays small regardless of deck size. `page` groups cards by slide
+      // and `table` carries facts the answer text often leaves out.
       const promptCards = deck.cards.map((c) => ({
         topic: c.topic,
         question: c.question,
         answer: c.answer,
+        page: c.page,
+        table: c.table || null,
       }));
 
-      await generateQuizStream(promptCards, prefs.difficulty, ({ type, data }) => {
-        if (type === 'start') {
-          total = data.totalTopics;
-          setGenProgress({ done: 0, total });
-        } else if (type === 'topic') {
-          topicResults.set(data.topic, data.questions);
-          setGenProgress((p) => ({ done: p.done + 1, total }));
-          setLiveTopics((t) => [...t, { name: data.topic, questions: data.questions }]);
+      await generateQuizStream(
+        promptCards,
+        target,
+        ({ type, data }) => {
+          if (type === 'start') {
+            total = data.totalTopics;
+            setGenProgress({ done: 0, total });
+          } else if (type === 'topic') {
+            topicResults.set(data.topic, data.questions);
+            setGenProgress((p) => ({ done: p.done + 1, total }));
+            setLiveTopics((t) => [...t, { name: data.topic, questions: data.questions }]);
 
-          if (!localState) {
-            // First topic to arrive — let the user start answering immediately instead of
-            // waiting for every topic to finish generating. Remaining topics keep streaming
-            // in behind the scenes and get folded into the session as they land.
-            const topics = [...topicResults.entries()].map(([name, questions]) => ({ name, questions }));
-            localState = initQuizState(topics, { shuffle: prefs.shuffle });
-            setQuizState(localState);
-            void saveQuizState(deck.id, localState);
-            const next = getCurrentQuestion(localState);
-            if (next) {
-              setCurrent(next);
-              updatePhase('ready');
+            if (!localState) {
+              // First topic to arrive — let the user start answering immediately instead of
+              // waiting for every topic to finish generating. Remaining topics keep streaming
+              // in behind the scenes and get folded into the session as they land.
+              const topics = [...topicResults.entries()].map(([name, questions]) => ({ name, questions }));
+              localState = initQuizState(topics, { shuffle: prefs.shuffle });
+              const nextStore = storeRef.current || emptyStore(target);
+              putSet(nextStore, target, localState); // replaces a set of the same difficulty, keeps the other
+              storeRef.current = nextStore;
+              updatePrefs({ difficulty: target });
+              persist();
+              showQuestion(localState);
+              setBgGenerating(true);
+            } else {
+              addTopicToState(localState, data.topic, data.questions);
+              persist();
+              bump();
+              // If the user had already finished every topic that was loaded so far, this
+              // new arrival brings the session back to life.
+              if (phaseRef.current === 'complete') showQuestion(localState);
             }
-            setBgGenerating(true);
-          } else {
-            addTopicToState(localState, data.topic, data.questions);
-            void saveQuizState(deck.id, localState);
-            setQuizState({ ...localState });
-            // If the user had already finished every topic that was loaded so far, this
-            // new arrival brings the session back to life.
-            if (phaseRef.current === 'complete') {
-              const next = getCurrentQuestion(localState);
-              if (next) {
-                setCurrent(next);
-                updatePhase('ready');
-              }
-            }
+          } else if (type === 'topic-error') {
+            setGenProgress((p) => ({ done: p.done + 1, total }));
+            setLiveTopics((t) => [...t, { name: data.topic, error: data.error }]);
+          } else if (type === 'fatal-error') {
+            throw new Error(data.error);
           }
-        } else if (type === 'topic-error') {
-          setGenProgress((p) => ({ done: p.done + 1, total }));
-          setLiveTopics((t) => [...t, { name: data.topic, error: data.error }]);
-        } else if (type === 'fatal-error') {
-          throw new Error(data.error);
-        }
-      });
+        },
+        { skipTopics }
+      );
 
       if (!localState) {
         throw new Error('No quiz questions could be generated for this deck.');
@@ -219,20 +282,19 @@ export default function QuizView({ deck, onExit, onStudy }) {
   function handleSubmit() {
     if (selected == null || !current || !quizState) return;
     recordActivity();
+    setUndo(null);
     const result = submitAnswer(quizState, current.topicName, current.index, current.presented, selected);
-    setFeedback({ correct: result.correct, explanation: current.presented.explanation });
-    void saveQuizState(deck.id, quizState);
+    setFeedback({
+      correct: result.correct,
+      explanation: current.presented.explanation,
+      memoryAid: current.presented.memoryAid || '',
+    });
+    persist();
   }
 
   function handleNext() {
-    setSelected(null);
-    setFeedback(null);
-    const next = getCurrentQuestion(quizState);
-    if (!next) {
-      updatePhase('complete');
-    } else {
-      setCurrent(next);
-    }
+    setUndo(null);
+    showQuestion(quizState);
   }
 
   // Lets the user jump straight to any question in the bank instead of only the one the
@@ -243,15 +305,100 @@ export default function QuizView({ deck, onExit, onStudy }) {
     if (!q) return;
     setSelected(null);
     setFeedback(null);
+    setSummaryOpen(false);
     setCurrent(q);
     if (phaseRef.current !== 'ready') updatePhase('ready');
+  }
+
+  // Shows a specific question again (after an undo).
+  function presentAgain(topicName, index) {
+    const q = quizState ? presentQuestion(quizState, topicName, index) : null;
+    if (!q) {
+      showQuestion(quizState);
+      return;
+    }
+    setSelected(null);
+    setFeedback(null);
+    setCurrent(q);
+    updatePhase('ready');
+  }
+
+  // Both removals move straight on to the next question and leave an Undo behind.
+  function removeAndAdvance(message, undoRun) {
+    persist();
+    bump();
+    setUndo({ message, run: undoRun });
+    showQuestion(quizState);
+  }
+
+  function handleSkipQuestion() {
+    if (!current || !quizState) return;
+    const { topicName, index } = current;
+    omitQuestion(quizState, topicName, index);
+    removeAndAdvance('Question removed. It won’t come back.', () => {
+      restoreQuestion(quizState, topicName, index);
+      persist();
+      bump();
+      presentAgain(topicName, index);
+    });
+  }
+
+  function handleSkipTopic() {
+    if (!current || !quizState) return;
+    const { topicName, index } = current;
+    skipTopic(quizState, topicName);
+    removeAndAdvance(`You won’t be asked about “${topicName}” again.`, () => {
+      restoreTopic(quizState, topicName);
+      persist();
+      bump();
+      presentAgain(topicName, index);
+    });
+  }
+
+  function handleRestoreQuestion(topicName, index) {
+    if (!quizState || !restoreQuestion(quizState, topicName, index)) return;
+    persist();
+    bump();
+    if (phaseRef.current === 'complete') showQuestion(quizState);
+  }
+
+  function handleRestoreTopic(topicName) {
+    if (!quizState || !restoreTopic(quizState, topicName)) return;
+    persist();
+    bump();
+    if (phaseRef.current === 'complete') showQuestion(quizState);
   }
 
   function handleToggleShuffle() {
     if (!quizState) return;
     setShuffleMode(quizState, !quizState.shuffle);
-    void saveQuizState(deck.id, quizState);
-    setQuizState({ ...quizState });
+    persist();
+    bump();
+  }
+
+  // Easy <-> Hard. A set that already exists is simply switched to; one that doesn't asks first,
+  // because generating costs an AI generation.
+  function handleSwitchDifficulty(difficulty) {
+    const target = normalizeDifficulty(difficulty);
+    const current_ = storeRef.current;
+    if (!current_ || bgGenerating) return;
+    setUndo(null);
+    setSummaryOpen(false);
+    if (target === current_.active && hasSet(current_, target)) return;
+    if (hasSet(current_, target)) {
+      switchTo(current_, target);
+      updatePrefs({ difficulty: target });
+      lastTargetRef.current = target;
+      persist();
+      showQuestion(activeSet(current_));
+      return;
+    }
+    setConfirm({ kind: 'generate', difficulty: target });
+  }
+
+  function handleRegenerate() {
+    if (!store || bgGenerating) return;
+    setConfirm({ kind: 'regenerate', difficulty: store.active });
   }
 
   async function startLockedIn() {
@@ -283,10 +430,13 @@ export default function QuizView({ deck, onExit, onStudy }) {
 
   const topicSummaries = quizState ? getTopicSummaries(quizState) : [];
   const stats = quizState ? getOverallStats(quizState) : { correct: 0, wrong: 0, attempted: 0, accuracy: null };
+  const activeDifficulty = store?.active || prefs.difficulty;
+  const otherDifficultyName = activeDifficulty === 'hard' ? 'easy' : 'hard';
 
-  // A–E or 1–5 choose an answer, Enter submits then continues, Esc leaves (not while locked in).
+  // A-E or 1-5 choose an answer, Enter submits and then continues, Esc leaves (not while locked in).
+  // Off while the summary is showing.
   useKeys((e) => {
-    if (phase !== 'ready' || !current) return;
+    if (phase !== 'ready' || !current || summaryOpen) return;
     if (e.key === 'Escape') {
       if (!lockedIn) onExit();
       return;
@@ -348,7 +498,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
             <div className="quiz-setup-row">
               <div>
                 <strong>Difficulty</strong>
-                <p className="muted small">Easy: vocab & basics. Hard: clinical application.</p>
+                <p className="muted small">Easy: vocab & basics. Hard: clinical application. You can switch any time.</p>
               </div>
               <div className="segmented">
                 <button
@@ -367,7 +517,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
             </div>
           </div>
 
-          <button className="primary" onClick={generate}>Start quiz</button>
+          <button className="primary" onClick={() => generate(prefs.difficulty)}>Start quiz</button>
           <button className="link" onClick={onExit}>Back to decks</button>
         </div>
       </div>
@@ -378,10 +528,10 @@ export default function QuizView({ deck, onExit, onStudy }) {
     return (
       <div className="quiz-centered">
         <div className="panel quiz-generating-panel">
-          <h2>Building your USMLE-style quiz</h2>
+          <h2>Building your {DIFFICULTY_LABEL[genDifficulty]} quiz</h2>
           <p className="muted">
-            Generating progressively harder questions for each topic in "{deck.name}"… the first
-            question will be ready as soon as one topic finishes.
+            Writing questions for each topic in "{deck.name}"… the first question will be ready as
+            soon as one topic finishes.
           </p>
           {genProgress.total > 0 && (
             <div className="progress">
@@ -408,7 +558,7 @@ export default function QuizView({ deck, onExit, onStudy }) {
                   >
                     <span>{t.error ? '⚠ ' : '✓ '}{t.name}</span>
                     <span className="muted small">
-                      {t.error ? 'failed' : `${t.questions.length} questions`}
+                      {t.error ? 'failed' : `${t.questions.length} question${t.questions.length === 1 ? '' : 's'}`}
                     </span>
                   </button>
                   {expandedTopic === t.name && !t.error && (
@@ -435,12 +585,17 @@ export default function QuizView({ deck, onExit, onStudy }) {
       <div className="quiz-centered">
         <div className="panel quiz-panel-narrow">
           <p className="error">{error}</p>
-          <button className="primary" onClick={generate}>Try again</button>
+          <button className="primary" onClick={() => generate(lastTargetRef.current)}>Try again</button>
+          {canResume && store && activeSet(store) && (
+            <button className="ghost" onClick={() => showQuestion(activeSet(store))}>Back to my quiz</button>
+          )}
           <button className="link" onClick={onExit}>Back to decks</button>
         </div>
       </div>
     );
   }
+
+  const showingSummary = phase === 'complete' || summaryOpen;
 
   return (
     <div className="quiz-layout">
@@ -531,7 +686,35 @@ export default function QuizView({ deck, onExit, onStudy }) {
               <p className="warning small">Background generation hit a snag: {bgGenError}</p>
             )}
 
-            {/* Always visible — not tucked behind a collapsible section, so shuffle/difficulty/
+            {store && (
+              <DifficultySwitch
+                store={store}
+                busy={bgGenerating}
+                onSwitch={handleSwitchDifficulty}
+                onRegenerate={handleRegenerate}
+              />
+            )}
+
+            {confirm && (
+              <div className="confirm-box" role="alertdialog" aria-label="Confirm">
+                <p>
+                  {confirm.kind === 'generate'
+                    ? `Generate ${DIFFICULTY_LABEL[confirm.difficulty]} questions for this deck? It uses 1 AI generation.`
+                    : `Replace your ${DIFFICULTY_LABEL[confirm.difficulty]} set with fresh questions? Your progress on it will be lost. It uses 1 AI generation.`}
+                </p>
+                {skippedTopicNames(store).length > 0 && (
+                  <p className="muted small">Topics you skipped stay skipped.</p>
+                )}
+                <div className="confirm-actions">
+                  <button className="primary small" onClick={() => generate(confirm.difficulty)}>
+                    {confirm.kind === 'generate' ? 'Generate' : 'Replace it'}
+                  </button>
+                  <button className="link small" onClick={() => setConfirm(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Always visible — not tucked behind a collapsible section, so shuffle and
                 locked-in are easy to find even when resuming a quiz that skips the setup screen. */}
             <div className="quiz-toolbar">
               <button
@@ -541,9 +724,13 @@ export default function QuizView({ deck, onExit, onStudy }) {
               >
                 {quizState?.shuffle ? 'Shuffled' : 'Slide order'}
               </button>
-              <span className="quiz-difficulty-badge" title="Set when the quiz was generated">
-                {prefs.difficulty === 'easy' ? 'Easy' : 'Hard'}
-              </span>
+              <button
+                className="toolbar-btn"
+                onClick={() => setSummaryOpen((open) => !open)}
+                title="See how this session is going"
+              >
+                Summary
+              </button>
             </div>
 
             {!lockedIn && (
@@ -589,7 +776,20 @@ export default function QuizView({ deck, onExit, onStudy }) {
               {questionsOpen && (
                 <ul className="topic-tree">
                   {topicSummaries.map((t) => {
-                    const doneCount = t.questions.filter((q) => q.correct).length;
+                    if (t.skipped) {
+                      return (
+                        <li key={t.name} className="topic-tree-item skipped">
+                          <div className="topic-tree-skipped">
+                            <span className="topic-tree-name" title={t.name}>{t.name}</span>
+                            <button className="link small" onClick={() => handleRestoreTopic(t.name)}>
+                              Restore topic
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    }
+                    const inQuiz = t.questions.filter((q) => !q.omitted);
+                    const doneCount = inQuiz.filter((q) => q.correct).length;
                     return (
                       <li key={t.name} className="topic-tree-item">
                         <button
@@ -602,12 +802,24 @@ export default function QuizView({ deck, onExit, onStudy }) {
                             {t.mastered ? '✓ ' : ''}
                             {t.name}
                           </span>
-                          <span className="topic-progress muted small">{doneCount}/{t.questions.length}</span>
+                          <span className="topic-progress muted small">{doneCount}/{inQuiz.length}</span>
                         </button>
 
                         {expandedTopic === t.name && (
                           <ul className="question-tree-list">
                             {t.questions.map((q) => {
+                              if (q.omitted) {
+                                return (
+                                  <li key={q.index} className="question-tree-item omitted">
+                                    <div className="question-tree-omitted">
+                                      <span className="question-tree-stem">{q.stem}</span>
+                                      <button className="link small" onClick={() => handleRestoreQuestion(t.name, q.index)}>
+                                        Restore
+                                      </button>
+                                    </div>
+                                  </li>
+                                );
+                              }
                               const isActive = current?.topicName === t.name && current.index === q.index;
                               const status = q.correct ? 'correct' : q.wrong > 0 ? 'wrong' : 'unattempted';
                               return (
@@ -638,7 +850,36 @@ export default function QuizView({ deck, onExit, onStudy }) {
       </div>
 
       <div className="panel quiz-panel">
-        {phase === 'ready' && current && (
+        {undo && (
+          <div className="undo-bar" role="status">
+            <span>{undo.message}</span>
+            <button
+              className="link small"
+              onClick={() => {
+                undo.run();
+                setUndo(null);
+              }}
+            >
+              Undo
+            </button>
+          </div>
+        )}
+
+        {showingSummary && quizState && (
+          <QuizSummary
+            summary={getSessionSummary(quizState)}
+            deckName={deck.name}
+            complete={phase === 'complete'}
+            difficulty={activeDifficulty}
+            hasOtherSet={hasSet(store, otherDifficultyName)}
+            onBack={() => setSummaryOpen(false)}
+            onExit={onExit}
+            onSwitch={handleSwitchDifficulty}
+            lockedIn={Boolean(lockedIn)}
+          />
+        )}
+
+        {!showingSummary && phase === 'ready' && current && (
           <div>
             <div className="quiz-question-header">
               <span className="quiz-topic-tag">{current.topicName}</span>
@@ -680,6 +921,18 @@ export default function QuizView({ deck, onExit, onStudy }) {
                   {feedback.correct ? 'Correct.' : 'Not quite. You’ll see this topic again.'}
                 </p>
                 <p>{feedback.explanation}</p>
+                {feedback.memoryAid &&
+                  (feedback.correct ? (
+                    <details className="memory-aid">
+                      <summary>Memory trick</summary>
+                      <p className="memory-aid-text">{feedback.memoryAid}</p>
+                    </details>
+                  ) : (
+                    <div className="memory-aid open">
+                      <span className="eyebrow">Remember it</span>
+                      <p className="memory-aid-text">{feedback.memoryAid}</p>
+                    </div>
+                  ))}
               </div>
             )}
 
@@ -693,15 +946,23 @@ export default function QuizView({ deck, onExit, onStudy }) {
               </button>
             )}
 
-            {!lockedIn && <button className="link" onClick={onExit}>Exit quiz</button>}
-          </div>
-        )}
-
-        {phase === 'complete' && (
-          <div>
-            <h2>Quiz complete</h2>
-            <p>You’ve mastered every topic in “{deck.name}”.</p>
-            {!lockedIn && <button className="primary" onClick={onExit}>Back to decks</button>}
+            <div className="quiz-skip">
+              <button
+                className="link"
+                onClick={handleSkipQuestion}
+                title="Remove this question from your quiz. It won’t come back."
+              >
+                Skip question
+              </button>
+              <button
+                className="link"
+                onClick={handleSkipTopic}
+                title="Stop asking about this topic."
+              >
+                Skip this topic
+              </button>
+              {!lockedIn && <button className="link quiz-exit" onClick={onExit}>Exit quiz</button>}
+            </div>
           </div>
         )}
       </div>

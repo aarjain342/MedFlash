@@ -9,7 +9,8 @@ import { requireAuth } from './auth.js';
 import { generationLimiter, chatLimiter, exemptCount, limitsSummary } from './rateLimit.js';
 import { proGenerationLimiter, proChatLimiter } from './planLimit.js';
 import { generateWithFallback, parseJsonArray, sanitizeCards } from './llm.js';
-import { buildQuizPrompt, groupCardsByTopic, sanitizeQuestions } from './quiz.js';
+import { buildQuizPrompt, groupCardsForQuiz, excludeTopics, generateTopicQuestions } from './quiz.js';
+import { buildSlidePrompt } from './slides.js';
 import { buildAnatomyLabelPrompt, extractAnatomyPage } from './anatomy.js';
 import { buildChatPrompt, sanitizeHistory } from './chat.js';
 import { stripe, billingConfigured } from './stripeClient.js';
@@ -72,6 +73,7 @@ app.use(express.json({ limit: '15mb' })); // deck JSON for quiz generation can c
 const SLIDE_CONCURRENCY = 2;
 const TOPIC_CONCURRENCY = 3;
 const ANATOMY_CONCURRENCY = 2;
+const QUIZ_MAX_OUTPUT_TOKENS = 8192;
 // The quiz zooms into a crop of each page, so it needs more pixels than a whole-slide
 // flashcard image does (see extractPage). Roughly 2.4x the bytes per page at this setting.
 const ANATOMY_RENDER = { scale: 3, jpegQuality: 72, jpegOnly: true };
@@ -86,33 +88,6 @@ const HEARTBEAT_MS = 15000;
 function startHeartbeat(res) {
   const timer = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
   return () => clearInterval(timer);
-}
-
-function buildSlidePrompt(text, pageIndex, totalPages, hasImage) {
-  const slideText = text || '(no extractable text on this slide)';
-  const imageNote = hasImage
-    ? '\nAn image of the slide is also attached — use it to read any diagrams, charts, labeled figures, or text that the extracted text above missed. If the slide is primarily a diagram/figure, base the flashcard(s) on what the image shows.'
-    : '';
-  return `You are making Anki-style flashcards for a first-year medical student, from ONE section of their study material (section ${pageIndex + 1} of ${totalPages}).
-
-Section text:
-"""
-${slideText}
-"""
-${imageNote}
-
-Goal: cover every topic and term mentioned on this slide, but consolidate related material into well-organized cards rather than splintering every minor point into its own card. Group things that belong together (e.g. a list of items with their properties becomes one card with a table; a multi-step process becomes one card walking through the steps) so a dense slide gets 2-3 cards and a light slide gets exactly 1. Only return an empty array [] if the slide is truly blank or is nothing but a section-divider title with no real content.
-
-For the "answer" of each card: it must explain the SAME material that's on the slide (don't invent new outside facts) — but written far more clearly than the slide's own wording, in plain approachable language a first-year med student can actually follow, as if a friend were explaining it well. Where it helps, use a short numbered/bulleted breakdown (plain text, one point per line, no markdown symbols like * or #).
-
-For each card, also include:
-- "table": if the slide content is naturally tabular (items mapped to properties/categories/destinations), fill this in as {"headers": [...], "rows": [[...], ...]}; otherwise set it to null. Don't force a table where a table isn't the natural shape of the content.
-- "mnemonic": a short, punchy memory trick, analogy, or acronym that makes this stick (e.g. "Think: protein + address label = correct destination", or an acronym expansion) — ONLY include one if something natural fits well; otherwise use an empty string. Don't force a corny one.
-
-Write question/answer/mnemonic as plain text only, no markdown formatting.
-
-Return ONLY a JSON array (no markdown fences, no commentary) of objects shaped like:
-{"question": "...", "answer": "...", "table": {"headers": [...], "rows": [[...]]} | null, "mnemonic": "...", "topic": "short topic tag"}`;
 }
 
 // rateLimit sits after requireAuth (so it can key on the verified user) but before
@@ -190,12 +165,18 @@ app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, proGen
 
   let topics;
   try {
-    topics = groupCardsByTopic(cards);
+    topics = groupCardsForQuiz(cards);
   } catch (err) {
     return res.status(400).json({ error: 'Could not read the deck cards' });
   }
   if (topics.length === 0) {
     return res.status(400).json({ error: 'No topics found in this deck' });
+  }
+  // Topics the student has told the quiz to skip stay skipped when they generate another
+  // difficulty. The grouping is deterministic for a given deck, so names match across sets.
+  topics = excludeTopics(topics, req.body?.skipTopics);
+  if (topics.length === 0) {
+    return res.status(400).json({ error: 'Every topic in this deck has been skipped, so there is nothing to generate.' });
   }
 
   res.writeHead(200, {
@@ -210,11 +191,15 @@ app.post('/api/generate-quiz', requireAuth, generationLimiter.middleware, proGen
 
   try {
     await runWithConcurrency(topics, TOPIC_CONCURRENCY, async (topic) => {
-      const raw = await generateWithFallback(providerChain, {
-        buildPrompt: () => buildQuizPrompt(topic.name, topic.cards, difficulty),
-      });
-      const questions = sanitizeQuestions(parseJsonArray(raw));
-      if (questions.length === 0) throw new Error('Model returned no valid questions for this topic');
+      const questions = await generateTopicQuestions(() =>
+        generateWithFallback(providerChain, {
+          purpose: 'quiz',
+          // Room for 5 questions with explanations and memory aids, and for models that spend part
+          // of their budget thinking before they answer.
+          maxOutputTokens: QUIZ_MAX_OUTPUT_TOKENS,
+          buildPrompt: () => buildQuizPrompt(topic.name, topic.cards, difficulty),
+        })
+      );
       return { topic: topic.name, questions };
     }, (index, result, err) => {
       const topicName = topics[index].name;

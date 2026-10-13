@@ -19,7 +19,7 @@ export function modelFallbackChain() {
   return [configured, ...FALLBACK_MODELS.filter((m) => m !== configured)];
 }
 
-export async function generateText(prompt, { model } = {}) {
+export async function generateText(prompt, { model, maxOutputTokens } = {}) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('Server missing GROQ_API_KEY');
 
@@ -36,7 +36,7 @@ export async function generateText(prompt, { model } = {}) {
       messages: [{ role: 'user', content: prompt }],
       // See gemini.js for why this cap exists — bounds a single slide's response so a
       // runaway generation can't balloon the deck payload past Supabase's statement timeout.
-      max_tokens: 4096,
+      max_tokens: maxOutputTokens || 4096,
     }),
   });
 

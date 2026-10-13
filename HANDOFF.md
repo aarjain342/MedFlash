@@ -637,6 +637,62 @@ shell. Fixed alongside: `100dvh` instead of `100vh`, 16px inputs (iOS zooms anyt
 44px touch targets, `text-size-adjust`, and phone overflow (buttons/chips wrapping instead of
 running off the card — note the base `button` rule sets `white-space: nowrap`, which children inherit).
 
+## Quiz quality, skipping and easy/hard sets (2026-10-12)
+
+The user reported dumb questions they can't skip, no way to switch easy/hard without re-uploading,
+and quiz quality that "isn't good anymore". What was actually wrong, found by running the real
+pipeline on a realistic 14-slide lecture (not by guessing):
+
+- **Topics were one-card each.** The card prompt tagged every card separately, so 37 cards became
+  31 topics, 28 of them holding a single card, and the quiz demanded "exactly 3 questions, each a
+  different angle" from each. That padding is where the trivial/repetitive questions came from
+  (78 questions from 26 cards). Fix: `groupCardsForQuiz` (server/src/quiz.js) builds topics from
+  whole slides, merges runs of single-card slides, and names them with slide numbers
+  ("Loop diuretics (slide 8)"). The question count now scales with the material
+  (`questionCountFor`: 1 card -> 1 question ... 8+ cards -> 5). The card prompt also tags every
+  card from a slide identically. Old decks without `page` fall back to tag grouping.
+- **Absurd distractors, no retry, no tables.** The prompt now carries explicit craft rules
+  (same-category plausible wrong answers, correct answer not the longest, no all/none of the
+  above, scope to the material but vignette framing may be invented). `questionIssues` drops
+  flagrant failures in code (duplicate options, answer spelled out in the stem, conspicuously long
+  answer, near-duplicate stems). `generateTopicQuestions` re-samples once on malformed JSON
+  (2 of 31 topics used to be lost outright). Card tables are now sent to the prompt.
+- **Memory aids.** Every question has a `memoryAid`, shown under the explanation (open on a
+  miss, collapsed on a hit) and repeated for missed questions in the session summary. The prompt
+  forbids passing off an invented mnemonic as famous or claiming a term "stands for" something
+  it doesn't (the first draft produced "PAH = Pack And Haul").
+- **Filler slides** (title, quote, agenda, objectives, thank-you, announcements, references,
+  icebreakers) now get no cards: `server/src/slides.js`. On the real model the old prompt made
+  cards for 7 of 8 such slides; the new one for none, and it still keeps thin real slides.
+
+**Skip / omit / restore** (client/src/lib/quizEngine.js): "Skip question" omits one question
+forever, "Skip this topic" takes the topic out and out of the progress totals, both with an Undo
+and a Restore in the sidebar. Skipped topics stay skipped when another difficulty is generated
+(`skipTopics` on `/api/generate-quiz`). Fixed a latent bug on the way: mastering a topic used to
+make the engine jump over the *next* topic (cursor advanced, then the list was filtered).
+
+**Easy and hard sets** (client/src/lib/quizSets.js): a deck's saved quiz is now
+`{ version: 2, active, sets: { hard, easy } }` in the same JSON column (no migration). Old
+single-state quizzes are wrapped on load and rewritten on the next save, treated as the student's
+current difficulty preference (they never recorded one). Generating the other set asks first,
+because it costs one AI generation. `getStatsAcross` accepts both shapes.
+
+**Model experiment, so nobody repeats it:** on this free-tier key `gemini-3.5-flash` failed every
+topic (quota / "high demand"), `gemini-flash-latest` took 60-70s per topic, and the lite models
+answered in ~3s and passed everything. So lite-first stays; the gain came from the prompt and the
+grouping. A blind solver disagreed with the answer key on 1 of 33 questions (3%), so a second
+verification pass was judged not worth doubling the cost.
+
+**Diagnosing quality drops:** `generateWithFallback` now logs `[llm] ok|fail purpose=... provider/model`
+per call. During testing `gemini-flash-lite-latest` hit its quota repeatedly and requests slid to
+other models, which is the most likely cause of quality varying day to day. Look for
+`[llm] fail ... exceeded your current quota` in the Render logs; enabling billing on the Gemini key
+is the real fix.
+
+**Not done:** using a lecture's "Learning objectives" slide as the scope for its questions (the
+tutor prompt the user pasted asked for this). Those slides are now skipped as cards, so it would need
+the objectives passed through as deck-level metadata.
+
 ## Working style notes for whoever picks this up
 
 - The user tests almost everything live (Vercel/Render production URLs), not just locally

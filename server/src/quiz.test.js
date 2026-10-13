@@ -110,10 +110,10 @@ describe('buildQuizPrompt', () => {
     assert.match(prompt, /2nd-order/);
   });
 
-  test('only includes up to the first 10 cards for the topic', () => {
+  test('only includes up to the first 12 cards for the topic', () => {
     const cards = Array.from({ length: 15 }, (_, i) => ({ question: `Q${i}`, answer: `A${i}` }));
     const prompt = buildQuizPrompt('Topic', cards, 'hard');
-    assert.match(prompt, /Q9/);
-    assert.doesNotMatch(prompt, /Q10\b/);
+    assert.match(prompt, /Q11\b/);
+    assert.doesNotMatch(prompt, /Q12\b/);
   });
 });
