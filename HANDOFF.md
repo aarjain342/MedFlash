@@ -267,7 +267,35 @@ Added five features to `QuizView.jsx` in one pass, requested together:
   The setup screen, sidebar minimizer, and locked-in mode UI have NOT been visually verified
   live — worth a look next time someone's signed in.
 
-## Design system (2026-08-23)
+## Design system: "Marker" (2026-10-12; supersedes the 2026-08-23 "chart & specimen" notes below)
+
+The user said the app looked vibe-coded, so the whole UI was redesigned. Direction: ink on paper
+with one highlighter. Barlow Condensed (uppercase headings), Public Sans (body), Chivo Mono (data);
+square corners, hairline rules instead of shadows; yellow (`--hi`) is reserved for "the thing":
+the active tab, the selected answer, today, a hovered primary button.
+- **Styles** are in `client/src/styles/` (`base.css` tokens + primitives, `shell.css` app frame and
+  command palette, `views.css` screens, `study.css` flashcards/quiz/anatomy, plus
+  `pages/Landing.css`). `App.css` and `index.css` no longer exist. Fonts load from a `<link>` in
+  `index.html`, not a CSS `@import`.
+- **Themes:** `data-theme="light|dark"` on `<html>`, set before first paint by an inline script in
+  `index.html` (no flash) and owned afterwards by `lib/theme.js` (System / Light / Dark, persisted
+  in localStorage, follows the OS live). Colours are tokens only, so a new component gets dark mode
+  for free; the anatomy page image and its hiding box stay light/near-black on purpose.
+- **Shell:** top bar with section tabs on wide screens, bottom tab bar under 900px, account menu
+  (theme + sign out), and a Ctrl/Cmd+K command palette (`lib/commands.js` matching,
+  `lib/commandList.js` builds the list from the user's decks).
+- **Home:** due-now count, 17-week activity heatmap (`lib/streak.js` now stores per-day answer
+  counts and uses LOCAL dates, not UTC), deck shortlist, quiz record, quick recall, Ask.
+- **Keyboard:** `lib/useKeys.js` (ignores typing, Ctrl/Cmd/Alt, and Space/Enter on a focused button).
+  Flashcards: Space flips, 1 missed, 2 got it. Quiz: A-E or 1-5 pick, Enter submit/next, Esc exit.
+  Anatomy: 1/2 after reveal. Shortcut hints (`.kbd-hint`) are hidden on touch devices.
+- **Also new:** drag-and-drop upload (`Dropzone.jsx`), per-deck highlighter colours
+  (`lib/deckColor.js`), split sign-in screen.
+- Verified in headless Chrome at desktop, iPad portrait/landscape and phone, light and dark. The
+  tablet/touch full-screen study layouts from the earlier iPad work were carried over into
+  `study.css`.
+
+### Earlier design notes (2026-08-23, no longer current; kept for history)
 
 - Installed the official Anthropic `frontend-design` skill locally at
   `.claude/skills/frontend-design/SKILL.md` (gitignored — `.claude` isn't committed, so this

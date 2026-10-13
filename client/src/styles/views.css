@@ -128,6 +128,17 @@
   background: linear-gradient(transparent 62%, var(--hi) 62%);
 }
 
+/* A long deck name must wrap inside the button instead of running off the card. */
+.due-now button.primary {
+  max-width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding-block: 12px;
+  line-height: 1.25;
+  text-align: left;
+  white-space: normal;
+}
+
 .due-caption {
   color: var(--muted);
   font-size: 15px;
