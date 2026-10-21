@@ -11,6 +11,8 @@ import FlashcardsView from './FlashcardsView';
 import QuestionsView from './QuestionsView';
 import AnatomyView from './AnatomyView';
 import SettingsView from './SettingsView';
+import AdminView from './AdminView';
+import { getAdminMe } from '../lib/adminApi';
 import {
   loadDecks,
   loadDecksMeta,
@@ -49,6 +51,24 @@ export default function Dashboard() {
   const [studyingAnatomyDeck, setStudyingAnatomyDeck] = useState(null);
   const { user, signOut } = useAuth();
   const guestMode = !supabaseConfigured;
+  // Whether to show the Admin tab. Purely cosmetic: every /api/admin/* route checks again on the server.
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const userId = user?.id;
+
+  useEffect(() => {
+    if (guestMode || !userId) {
+      setIsAdmin(false);
+      return undefined;
+    }
+    let cancelled = false;
+    getAdminMe().then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [guestMode, userId]);
 
   // Two-stage load: the lightweight metadata query paints the deck list almost instantly
   // (no card/image data), then the full fetch fills in `cards` per deck in the background.
@@ -210,6 +230,8 @@ export default function Dashboard() {
     content = <QuestionsView decks={decks} decksLoading={decksLoading} onQuiz={handleQuiz} />;
   } else if (activeView === 'settings') {
     content = <SettingsView user={user} guestMode={guestMode} onSignOut={signOut} />;
+  } else if (activeView === 'admin' && isAdmin) {
+    content = <AdminView />;
   } else if (activeView === 'decks') {
     content = (
       <DecksView
@@ -248,6 +270,7 @@ export default function Dashboard() {
     decks,
     anatomyDecks,
     guestMode,
+    isAdmin,
     actions: {
       navigate: handleNavigate,
       study: handleStudy,
@@ -266,6 +289,7 @@ export default function Dashboard() {
       guestMode={guestMode}
       onSignOut={signOut}
       commands={commands}
+      isAdmin={isAdmin}
     >
       {decksError && (
         <div className="deck-load-error">

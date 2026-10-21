@@ -20,6 +20,17 @@ describe('buildCommands', () => {
     }
   });
 
+  // The Admin command is how the owner jumps to the dashboard; nobody else should even see it.
+  test('offers an Admin command only to the admin', () => {
+    assert.ok(!buildCommands({ actions }).some((c) => c.id === 'go-admin'));
+    assert.ok(!buildCommands({ actions, isAdmin: false }).some((c) => c.id === 'go-admin'));
+    const admin = buildCommands({ actions, isAdmin: true }).find((c) => c.id === 'go-admin');
+    assert.ok(admin);
+    calls.length = 0;
+    admin.run();
+    assert.deepEqual(calls, [['navigate', 'admin']]);
+  });
+
   test('guest mode has no account to sign out of', () => {
     assert.ok(!buildCommands({ actions, guestMode: true }).some((c) => c.id === 'sign-out'));
   });

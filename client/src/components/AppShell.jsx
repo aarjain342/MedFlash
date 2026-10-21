@@ -11,6 +11,9 @@ const NAV_ITEMS = [
   { key: 'anatomy', label: 'Anatomy' },
 ];
 
+// Appended only for the owner; the server decides who that is (see lib/adminApi.js).
+const ADMIN_NAV_ITEM = { key: 'admin', label: 'Admin' };
+
 function SearchIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="square" aria-hidden="true">
@@ -93,8 +96,9 @@ function AccountMenu({ user, guestMode, onNavigate, onSignOut }) {
 // Persistent app frame: a top bar with the section tabs on wide screens, a bottom tab bar on
 // phones and portrait tablets, and Ctrl/Cmd+K to jump anywhere. Study, Quiz and the Anatomy
 // Quiz render inside the same content slot, so the active tab stays correct while they're open.
-export default function AppShell({ activeView, onNavigate, user, guestMode, onSignOut, commands, children }) {
+export default function AppShell({ activeView, onNavigate, user, guestMode, onSignOut, commands, isAdmin = false, children }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const navItems = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -115,7 +119,7 @@ export default function AppShell({ activeView, onNavigate, user, guestMode, onSi
         <div className="app-topbar-inner">
           <Brand />
           <nav className="app-nav" aria-label="Sections">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <button
                 key={item.key}
                 className={`app-nav-item ${activeView === item.key ? 'active' : ''}`}
@@ -140,7 +144,7 @@ export default function AppShell({ activeView, onNavigate, user, guestMode, onSi
       <main className="app-shell-content stagger-in">{children}</main>
 
       <nav className="app-tabbar" aria-label="Sections">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <button
             key={item.key}
             className={activeView === item.key ? 'active' : ''}

@@ -16,6 +16,7 @@ import { buildChatPrompt, sanitizeHistory } from './chat.js';
 import { stripe, billingConfigured } from './stripeClient.js';
 import { adminConfigured } from './supabaseAdmin.js';
 import { handleWebhookEvent, createCheckoutSession, createPortalSession, getBillingStatus } from './billing.js';
+import { registerAdminRoutes } from './admin.js';
 
 const app = express();
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
@@ -347,6 +348,10 @@ app.get('/api/billing/status', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Could not load billing status' });
   }
 });
+
+// Owner-only dashboard (users, subscriptions, payments). Authorization lives in admin.js and is
+// driven by ADMIN_EMAILS / ADMIN_USER_IDS; with neither set, every admin route refuses everyone.
+registerAdminRoutes(app, requireAuth);
 
 app.get('/api/health', (_req, res) =>
   res.json({ ok: true, rateLimit: { ...limitsSummary(), exemptUsers: exemptCount() }, billingConfigured })

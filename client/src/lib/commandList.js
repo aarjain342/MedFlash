@@ -1,7 +1,7 @@
 // Builds the command palette's list from what the dashboard currently has. Study/Quiz commands
 // only appear for decks whose cards have finished loading, because the study screens need them
 // (the deck lists disable the same buttons while a deck is still "Loading…").
-export function buildCommands({ decks = [], anatomyDecks = [], guestMode = false, actions }) {
+export function buildCommands({ decks = [], anatomyDecks = [], guestMode = false, isAdmin = false, actions }) {
   const commands = [
     { id: 'go-home', group: 'Go to', label: 'Home', keywords: 'today dashboard', run: () => actions.navigate('home') },
     { id: 'go-decks', group: 'Go to', label: 'Decks', keywords: 'upload create generate', run: () => actions.navigate('decks') },
@@ -10,6 +10,10 @@ export function buildCommands({ decks = [], anatomyDecks = [], guestMode = false
     { id: 'go-anatomy', group: 'Go to', label: 'Anatomy quiz', keywords: 'diagram labels bones', run: () => actions.navigate('anatomy') },
     { id: 'go-settings', group: 'Go to', label: 'Settings', keywords: 'plan billing account appearance', run: () => actions.navigate('settings') },
   ];
+
+  if (isAdmin) {
+    commands.push({ id: 'go-admin', group: 'Go to', label: 'Admin', keywords: 'users payments revenue subscribers owner', run: () => actions.navigate('admin') });
+  }
 
   for (const deck of decks) {
     if (!deck.cards || deck.cards.length === 0) continue;
