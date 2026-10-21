@@ -1,6 +1,6 @@
 /* MedFlash design system: "Marker".
    Ink on paper with one highlighter. Condensed capitals for headings, a sturdy grotesk for
-   reading, square corners, hairline rules instead of shadows. Yellow is reserved for "this is
+   reading, square corners, hairline rules instead of shadows. Blue is reserved for "this is
    the thing": the active tab, the selected answer, today, a filled bar, a hovered primary.
    Themes are switched by data-theme on <html> (set before first paint by index.html). */
 
@@ -19,8 +19,8 @@
   --border: #d9d9d1;
   --rule: #0e0e0c;
 
-  --hi: #ffe14a;
-  --hi-soft: #fff4b8;
+  --hi: #5b8dff;
+  --hi-soft: #dce7ff;
   --on-hi: #0e0e0c;
 
   --primary: #0e0e0c;
@@ -34,22 +34,22 @@
   --card-back: #0e0e0c;
   --card-back-text: #ffffff;
   --mark-bg: #0e0e0c;
-  --mark-fg: #ffe14a;
+  --mark-fg: #7aa5ff;
   --scrim: rgba(14, 14, 12, 0.55);
 
   /* Deck highlighter set (see .deck-chip) */
-  --m0: #ffe14a;
+  --m0: #5b8dff;
   --m1: #ff9db8;
-  --m2: #8fc8ff;
+  --m2: #7fdde6;
   --m3: #8be0a4;
   --m4: #ffb36b;
   --m5: #c9adff;
 
   /* Activity heatmap, quiet to loud */
   --heat-0: var(--sunk);
-  --heat-1: #fff0a0;
-  --heat-2: #ffe14a;
-  --heat-3: #f5b800;
+  --heat-1: #cfdcff;
+  --heat-2: #7aa5ff;
+  --heat-3: #2f6fed;
   --heat-4: #0e0e0c;
 
   --radius: 2px;
@@ -68,8 +68,8 @@
   --border: #2e2e2a;
   --rule: #f3f3ec;
 
-  --hi: #ffdd2e;
-  --hi-soft: #3b3611;
+  --hi: #7aa5ff;
+  --hi-soft: #14224a;
   --on-hi: #0d0d0c;
 
   --primary: #f3f3ec;
@@ -82,22 +82,22 @@
 
   --card-back: #f3f3ec;
   --card-back-text: #0d0d0c;
-  --mark-bg: #ffdd2e;
+  --mark-bg: #7aa5ff;
   --mark-fg: #0d0d0c;
   --scrim: rgba(0, 0, 0, 0.7);
 
-  --m0: #ffdd2e;
+  --m0: #7aa5ff;
   --m1: #ff7fa3;
-  --m2: #6bb6ff;
+  --m2: #5fd3dd;
   --m3: #5bd486;
   --m4: #ff9a4a;
   --m5: #b28cff;
 
   --heat-0: #22221f;
-  --heat-1: #4a4213;
-  --heat-2: #a98f12;
-  --heat-3: #ffdd2e;
-  --heat-4: #fffbe0;
+  --heat-1: #17285a;
+  --heat-2: #2f56b8;
+  --heat-3: #7aa5ff;
+  --heat-4: #e6eeff;
 
   color-scheme: dark;
 }

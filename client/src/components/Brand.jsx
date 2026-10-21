@@ -1,4 +1,4 @@
-// The wordmark: a black tile with a yellow bolt, then MED + FLASH with FLASH on a highlighter
+// The wordmark: a black tile with a blue bolt, then MED + FLASH with FLASH on a highlighter
 // block. `as` lets it render as a router <Link> on public pages and a plain <span> in the app.
 export default function Brand({ as: Tag = 'span', ...props }) {
   return (

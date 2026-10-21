@@ -998,7 +998,7 @@ html.study-locked body {
 .occlusion-ring {
   position: absolute;
   border: 3px solid #0e0e0c;
-  box-shadow: 0 0 0 3px #ffe14a;
+  box-shadow: 0 0 0 3px var(--hi);
   pointer-events: none;
 }
 
